@@ -162,6 +162,41 @@ def vec3_to_yaw_pitch(vec3):
 
     return yaw, pitch
 
+def vec2_toroidal_vec(A, B, xmax, ymax):
+    """
+    Given a toroidal space described by -xmax < x < xmax, -ymax < 0 < ymax.
+
+    This function returns the imaginary points that would affect another point A
+    around the torus.
+    This is done by duplicating B 8 times by adding/subbing the ranges
+    so that the 'other side's of B exist and create forces on A as if they
+    were going around the torus.
+
+    assumes the sapce is [0,0] centered and symmetric. The bounds are then
+    [-xmax, xmax], [-ymax,ymax].
+    """
+    A = np.array(A, dtype='float64')
+    B = np.array(B, dtype='float64')
+
+    # we also want 'only change x' type
+    # interactions too!
+    x_range = [xmax, -xmax, 0]
+    y_range = [ymax, -ymax, 0]
+
+    vecs = []
+    for x in x_range:
+        for y in y_range:
+            # this is the 'around the torus'
+            # version of B
+            BB = B + [x,y]
+            vec = BB-A
+            vecs += [vec]
+    return np.array(vecs)
+
+
+
+
+
 
 #########################################################################
 # GEOMETRIC CONSTRUCTS
@@ -404,6 +439,79 @@ def trace_line_segment(p1,p2,ratio):
     return (a,b)
 
 
+########################################################################
+
+# SPHERICAL STUFF
+
+# Coordinate systems: x,y,z -> right-handed
+#                     r,theta,phi or r,u,v -> sphere of radius r, r>=0
+#                                             phi = angle from x to y, 'yaw', -pi < phi <= pi
+#                                             theta = angle from z, 'pitch' for a vehicle that
+#                                                     is looking towards (0,0,1)
+#                                                     -pi/2 < theta < pi/2
+
+########################################################################
+
+def xyz_to_uvr(p):
+    """
+    convert cartesian point p=(x,y,z) to
+    spherical coordinates (u,v,r)
+    sphere is centered on origin
+    """
+    r = vec_len(p)
+    x,y,z = p
+    u = np.arccos(z/r)
+    v = np.arctan2(y,x)
+    return np.array((u,v,r))
+
+
+def uvr_to_xyz(p):
+    """
+    convert a spherical point p=(u,v,r) to
+    cartesian (x,y,z)
+    """
+    u,v,r = p
+    x = r*np.sin(u)*np.cos(v)
+    y = r*np.sin(u)*np.sin(v)
+    z = r*np.cos(u)
+    return np.array((x,y,z))
+
+def plane_sphere_intersection_in_uvr(A, R):
+    """
+    consider a sphere of radius R centered at C == (0,0,0)
+    and a plane described by a point A and a normal vector n = A-C.
+    if A is 'inside' the sphere, the plane instersects the sphere,
+    creating a circle on the sphere, centered on A with radius r.
+    This function returns the description of this circle in spherical coordinates (u,v,r).
+    See the 'uvr_to_xyz' or 'xyz_to_uvr' functions.
+
+    The intersection circle is described with a center and radius in spherical coordinates.
+    returns (u,v,gamma) where (u,v) is (theta,phi) center and gamma is the radius.
+    """
+
+    # how much the plane is 'inside' the sphere
+    # distance of A to C
+    # C is assumed origin
+    a = vec_len(A)
+    if a == 0:
+        # the plane intersects the sphere by going thourgh the center of it
+        # the opening angle is 90 in this case
+        return (0,0, np.pi/2)
+    # the opening angle between AC and BC, where B is any point
+    # on the circle intersection
+    gamma = np.arccos(a / R)
+
+    # spherical coords of the point A gives us the center of the circle
+    # the radius here should be the same as a
+    u,v,r = xyz_to_uvr(A)
+    assert a == r
+
+    return (u,v,gamma)
+
+
+
+
+
 
 
 if __name__=='__main__':
@@ -497,3 +605,26 @@ if __name__=='__main__':
 
     assert all( trace_line_segment([0,1], [0,11], 0.1) == np.array([0,2]) )
     print('trace_line_segment ok')
+
+    assert all(xyz_to_uvr((1,0,0)) == [np.pi/2,0.,1])
+    assert all(xyz_to_uvr((0,1,0)) == [np.pi/2, np.pi/2,1])
+    assert all(xyz_to_uvr((0,0,1)) == [0.,0.,1])
+    print('xyz_to_uvr ok')
+
+    zero = 1e-15
+    # zero used here because of float errors
+    assert all( np.abs(uvr_to_xyz((np.pi/2,0,1)) - [1.,0.,0.]) <= [0,0,zero] )
+    assert all( np.abs(uvr_to_xyz((np.pi/2,np.pi/2,1)) - [0.,1.,0.]) <= [zero,zero,zero] )
+    assert all( np.abs(uvr_to_xyz((0,0,1)) - [0.,0.,1.]) <= [0,0,0] )
+    print('uvr to xyz ok')
+
+
+    R = 1
+    # this plane is tangent to the sphere, so the gamma opening is 0
+    # when the plane is 'on top', the circle in u,v is centered on origin
+    assert plane_sphere_intersection_in_uvr( (0,0,1), R ) == (0.,0.,0.)
+    # this plane is intersecting the center of the circle
+    assert plane_sphere_intersection_in_uvr( (0,0,0), R ) == (0., 0., np.pi/2)
+    # the rest are hard to calc by hand so meh
+    print('plane_sphere_intersection_in_uvr ok')
+

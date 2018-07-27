@@ -103,6 +103,78 @@ class RosMarkerArrayView:
         self.pub.publish(self.marker_array)
 
 
+class RosSwarmView:
+    def __init__(self,
+                 swarm,
+                 mesh_path,
+                 mesh_rgba,
+                 mesh_scale):
+        """
+        Similar to marker array view, but this assumes that the given array of stuff
+        are all identical.
+
+        swarm needs to have get_positions() and get_orientation_quats() functions.
+        """
+
+        self.swarm = swarm
+        self.last_used_id = -1
+        self.pub = rospy.Publisher('/rviz_marker_array', MarkerArray, queue_size=1)
+
+        # create these ahead of time, just need to update before publishing
+        self.marker_array = MarkerArray()
+
+        self.poses = []
+        for i in range(len(swarm._pos)):
+            point = Point()
+            quat = Quaternion()
+            pose = Pose()
+            pose.position = point
+            pose.orientation = quat
+
+            marker = Marker()
+            marker.ns = '/marker_array'
+            marker.id = self.last_used_id+1
+            self.last_used_id += 1
+            marker.action = 0
+            # 10 for mesh
+            marker.type = 10
+
+            marker.pose = pose
+            x,y,z = mesh_scale
+            marker.scale.x = x
+            marker.scale.y = y
+            marker.scale.z = z
+
+            r,g,b,a = mesh_rgba
+            marker.color.a = a
+            marker.color.r = r
+            marker.color.g = g
+            marker.color.b = b
+
+            marker.mesh_resource = 'file://'+mesh_path
+            marker.header.frame_id = '/world'
+
+            self.marker_array.markers.append(marker)
+
+
+
+    def update(self):
+        for pos,quat,marker in zip(self.swarm.get_positions(),
+                                         self.swarm.get_orientation_quats(),
+                                         self.marker_array.markers):
+
+            marker.pose.position.x = pos[0]
+            marker.pose.position.y = pos[1]
+            marker.pose.position.z = pos[2]
+
+            marker.pose.orientation.x = quat[0]
+            marker.pose.orientation.y = quat[1]
+            marker.pose.orientation.z = quat[2]
+            marker.pose.orientation.w = quat[3]
+
+        self.pub.publish(self.marker_array)
+
+
 
 
 

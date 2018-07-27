@@ -21,7 +21,8 @@ class DynamicPoint:
                  init_acc = (0,0,0),
                  damping=None,
                  max_vel=None,
-                 max_acc=None):
+                 max_acc=None
+                 ):
 
         self.mass = mass
         self.pos = np.array(init_pos, dtype='float64')
@@ -30,6 +31,7 @@ class DynamicPoint:
         self.damping = damping
         self.max_vel = max_vel
         self.max_acc = max_acc
+
 
 
     def _limit_vel(self, vel):
