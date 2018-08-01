@@ -117,7 +117,8 @@ class RosSwarmView:
         """
 
         self.swarm = swarm
-        self.last_used_id = -1
+        #  self.last_used_id = -1
+        self.last_used_id = 999
         self.pub = rospy.Publisher('/rviz_marker_array', MarkerArray, queue_size=1)
 
         # create these ahead of time, just need to update before publishing
@@ -160,8 +161,8 @@ class RosSwarmView:
 
     def update(self):
         for pos,quat,marker in zip(self.swarm.get_positions(),
-                                         self.swarm.get_orientation_quats(),
-                                         self.marker_array.markers):
+                                   self.swarm.get_orientation_quats(),
+                                   self.marker_array.markers):
 
             marker.pose.position.x = pos[0]
             marker.pose.position.y = pos[1]

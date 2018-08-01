@@ -56,14 +56,19 @@ def vec_normalize(vec):
     """
     returns the length and 1-long version of the given vector
     """
-    vec = np.array(vec, dtype='float64')
+    vec = np.array(vec)
+    vec2 = np.atleast_2d(vec)
     # one less function call here
-    norm = np.linalg.norm(vec)
-    if norm == 0:
-        # 0 length vector
-        return norm, vec
-    else:
-        return norm, vec/norm
+    norm = np.linalg.norm(vec2, axis=1)
+    # atleast2d stuff so that vec = (N,k) and divider=(N,l) can be divided like this easily
+    unit = vec/(np.atleast_2d(norm).T)
+
+    if len(norm) == 1:
+        norm = norm[0]
+        unit = unit[0]
+
+    assert unit.shape == vec.shape, "unit shape: %r, given vec shape: %r" %(unit.shape, vec.shape)
+    return norm, unit
 
 
 def vec_limit_len(vec, max_len):
@@ -456,25 +461,49 @@ def xyz_to_uvr(p):
     """
     convert cartesian point p=(x,y,z) to
     spherical coordinates (u,v,r)
+    p can be (N,3), result will be (N,3)
     sphere is centered on origin
+    does not limit rotations and such
     """
-    r = vec_len(p)
-    x,y,z = p
+    p = np.array(p)
+    p2 = np.atleast_2d(p)
+    r = vec_len(p2)
+    x = p2[:,0]
+    y = p2[:,1]
+    z = p2[:,2]
     u = np.arccos(z/r)
     v = np.arctan2(y,x)
-    return np.array((u,v,r))
+    res = np.vstack( (u,v,r) ).T
+
+    # return 1d if input was 1d
+    if p.shape == (3,):
+        return res[0]
+
+    return res
 
 
 def uvr_to_xyz(p):
     """
     convert a spherical point p=(u,v,r) to
     cartesian (x,y,z)
+    p can be (N,3), result will be (N,3)
+    does not limit rotations and such
     """
-    u,v,r = p
+    p = np.array(p)
+    p2 = np.atleast_2d(p)
+    u = p2[:,0]
+    v = p2[:,1]
+    r = p2[:,2]
     x = r*np.sin(u)*np.cos(v)
     y = r*np.sin(u)*np.sin(v)
     z = r*np.cos(u)
-    return np.array((x,y,z))
+    res = np.vstack((x,y,z)).T
+
+    # return 1d if input was 1d
+    if p.shape == (3,):
+        return res[0]
+
+    return res
 
 def plane_sphere_intersection_in_uvr(A, R):
     """
@@ -501,12 +530,12 @@ def plane_sphere_intersection_in_uvr(A, R):
     # on the circle intersection
     gamma = np.arccos(a / R)
 
-    # spherical coords of the point A gives us the center of the circle
+    # spherical coords of the point A gives us the center of the circle.
     # the radius here should be the same as a
     u,v,r = xyz_to_uvr(A)
     assert a == r
 
-    return (u,v,gamma)
+    return u,v,gamma
 
 
 
@@ -627,4 +656,28 @@ if __name__=='__main__':
     assert plane_sphere_intersection_in_uvr( (0,0,0), R ) == (0., 0., np.pi/2)
     # the rest are hard to calc by hand so meh
     print('plane_sphere_intersection_in_uvr ok')
+
+    import matplotlib.pyplot as plt
+    plt.ion()
+
+    nx = 50
+    ny = 50
+    xs = np.linspace(-1,1,nx)
+    ys = np.linspace(-1,1,ny)
+    xx, yy = np.meshgrid(xs,ys)
+    uvrs = []
+    for i in range(nx):
+        for j in range(ny):
+            uvrs.append(xyz_to_uvr((xx[i,j], yy[i,j], 1)))
+    uvrs = np.array(uvrs)
+    plt.scatter(uvrs[:,0], uvrs[:,1], c='b', alpha=0.2)
+
+    uvrs = []
+    for i in range(nx):
+        for j in range(ny):
+            uvrs.append(xyz_to_uvr((xx[i,j], yy[i,j], 10)))
+    uvrs = np.array(uvrs)
+    plt.scatter(uvrs[:,0], uvrs[:,1], c='r', alpha=0.2)
+
+
 
