@@ -183,7 +183,6 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         p is in uvr coords.
         """
 
-        TODO FUCK SPHERE COORDS, GO WITH CARTESIAN BS
         cu,cv,cr = G.plane_sphere_intersection_in_uvr(p, self._radius)
         self.uv_obstacles.append((cu,cv,cr))
 
@@ -194,7 +193,6 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         that is representing a xyz-plane, the point is moved to normalize(p-c)*r
         """
 
-        TODO FUCK SPHERE COORDS, GO WITH CARTESIAN BS
         for obstacle in self.uv_obstacles:
             # center and radius of obstacle
             cu, cv, cr = obstacle
