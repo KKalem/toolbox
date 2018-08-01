@@ -54,7 +54,7 @@ class DynamicPointSwarm:
         self._mass = mass
         self._damping = damping
 
-    def _any_alive(self, vel_limit=0.001):
+    def _any_alive(self, vel_limit=0.01):
         """
         if no particle is moving, retun false, otherwise return true
         """
@@ -172,7 +172,7 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
 
         # planar obstacles to 'collide' off of
         # see the similarly named function
-        self.uv_obstacles = []
+        self.planar_obstacles = []
 
 
     def add_planar_obstacle(self, p):
@@ -180,56 +180,114 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         p represents a plane that cuts the target sphere. Said p is the 'middle' of the plane
         that when the normal of the plane is added to p, result is the center of the sphere.
         p + n = C.
-        p is in uvr coords.
+        p is in xyz coords
         """
-
-        cu,cv,cr = G.plane_sphere_intersection_in_uvr(p, self._radius)
-        self.uv_obstacles.append((cu,cv,cr))
+        self.planar_obstacles.append(p)
 
     def handle_plane_collisions(self):
         """
-        handle collisions in theta-phi space.
-        if a point p is inside a uv-circle with center c=(cu,cv) and radius r
-        that is representing a xyz-plane, the point is moved to normalize(p-c)*r
+        'push' the points to the plane such that they are at the side of the plane where the normal
+        vector is pointing towards
         """
 
-        for obstacle in self.uv_obstacles:
-            # center and radius of obstacle
-            cu, cv, cr = obstacle
-            # agents in uv space
-            uvr_pos = G.xyz_to_uvr(self._pos)
-            uv_pos = uvr_pos[:,:2]
-            # p-c is a vector from center of obstacle to point
-            inside_vec = (cu,cv) - uv_pos
-            inside_vec_norm, inside_vec_unit = G.vec_normalize(inside_vec)
-            # check against radius to create a mask
-            # if the vector is shorter than radius, the point is inside the obstacle
-            inside = inside_vec_norm < cr
-            # how much does the point need to be moved?
-            # radius-vec_norm is the distance to the nearest circle surface
-            movement = cr - inside_vec_unit
-            # multiply by inside so that only the ones that are actually are
-            # inside the circle have non-0 movement, outside points will have movement=0
-            movement[:,0] *= inside
-            movement[:,1] *= inside
-            # now move the points
-            uv_pos += movement
-            # put the radius back in so that we can convert to xyz
-            uvr_pos[:,:2] = uv_pos
-            # covert back to xyz
-            xyz_pos = G.uvr_to_xyz(uvr_pos)
-            # we do this so that the reference of self._pos doesnt change.
-            # kind of a hack really, might not be needed
+        for A,n in self.planar_obstacles:
+            # project the points on the plane, if dist < 0 then the point
+            # needs to be moved to the projected point
+            projections, distances = G.project_point_to_plane(self._pos, A, n)
+            # difference from current positions to the projected positions
+            # we want to 0 out the difference where the point is on the 'right'
+            # side of the plane
+            # dX is towards the planes normal
+            dX = projections - self._pos
+            # this creates a boolean array where true=needs to be moved
+            mask = distances < 0
+            # mask is (N,) dX is (N,3), we want to create an
+            # (N,3) movement array that has (0,0,0) where mask=False
+            # basically multiply all rows with mask
             for i in range(3):
-                self._pos[:,i] = xyz_pos[:,i]
+                dX[:,i] *= mask
+            self._pos += dX
 
-            for i in range(self._pos.shape[0]):
-                if inside[i]:
-                    print('obstacle:',obstacle,'point xyz:',self._pos[i],'uvr:',uv_pos[i])
+        # will break when more than one plane !!!!!!!!!!!!!!
+        return distances
 
-        # if there are more than 1 obstacle, this will fuck up
-        return movement
 
+    def handle_obstacle_forces(self, dt, forces):
+        """
+        given some forces currently acting on points, return forces that wont make points
+        go through obstacles.
+        """
+        N = self._pos.shape[0]
+        # record these so that we can put them back at the end, the mock updates 
+        # will modify these otherwise
+        current_real_pos = np.copy(self._pos)
+        current_real_vel = np.copy(self._vel)
+
+        # we need to find the part of the forces that will move the points
+        # over to the opposite side of the plane
+        # so first we need to check if the current forces will push the point
+        # over to the other side of the plane
+        # this is a "mock-update"
+        self.update(dt, forces)
+        # now we are in 1 frame in the future
+
+        for A,n in self.planar_obstacles:
+            # project the current points to see if we ALREADY are crossed
+            current_projections, current_distances = G.project_point_to_plane(current_real_pos, A, n)
+            # project our points in the future to the plane to see if we cross over next frame
+            future_projections, future_distances = G.project_point_to_plane(self._pos, A, n)
+            # if distance to plane < 0, then we are on the 'wrong' side of it
+            # we will use this mask to decide which points will have their forces nerfed
+
+            current_crossed = current_distances < 0
+            future_crossed = future_distances < 0
+
+            current_not_crossed = np.logical_not(current_crossed)
+            future_not_crossed = np.logical_not(future_crossed)
+
+            # if point is currently crossed but not crossed in the future, do nothing to it
+            do_nothing = np.logical_and(current_crossed, future_not_crossed)
+            # if point is currently crossed and crossed in the future, push it out
+            push_out = np.logical_and(current_crossed, future_crossed)
+            # if point is currently not crossed but crossed in the future, zero the penetrative forces
+            zero_out = np.logical_and(current_not_crossed, future_crossed)
+            # if point is currently not crossed and not crossed in the future, do nothing to it either
+            do_nothing = np.logical_or(do_nothing, np.logical_and(current_not_crossed, future_not_crossed))
+
+            # now we have 3 masks that filter out the three possible actions we can take on points
+
+            # project the forces to the plane's normal, this gives us the penetrative
+            # part of the forces acting on the points, we want to have 0 penetrative force
+            # on the points that will pass over, given by mask.
+            penetrative_f = G.project_vec(forces, n)
+            # mask out the points that wont pass over
+            for i in range(3):
+                penetrative_f[:,i] *= zero_out
+
+            # pushing force is simply the plane's normal. how powerful it should be is another question.
+            # simply the distance to plane is probably a good start
+            #  pushing_f = np.outer(current_distances ,n)
+            pushing_f = np.outer([2]*N, n)
+            for i in range(3):
+                pushing_f[:,i] *= push_out
+
+            print('--')
+            print(penetrative_f)
+            print(pushing_f)
+            # penetrative_f and pushing_f should have mutually exclusive non-zero elements
+            # so it is safe to sum them up
+            # we need to negate the penetrative to make it 'anti-penetrative'
+            net_f = -penetrative_f*10 + pushing_f*5
+            forces += net_f
+
+
+
+
+        # reset to real current values
+        self._pos = current_real_pos
+        self._vel = current_real_vel
+
+        return forces
 
     def check_sphere(self):
         """
@@ -302,9 +360,9 @@ if __name__=='__main__':
     # N, num of agents
     N = 4
     # dt, time step per sim tick
-    dt = 0.01
+    dt = 0.005
     # ups, updates per second for ros stuff to update
-    ups = 30
+    ups = 90
     # ticker per view, how many sim ticks to run per view update
     ticks_per_view = 1
 
@@ -339,11 +397,12 @@ if __name__=='__main__':
     # a plane that is a little inside the sphere at 0,0,0 with r=1
     #  plane_pos = G.uvr_to_xyz((np.pi/6, np.pi/4, 0.5))
     plane_pos = G.uvr_to_xyz((0, 0, 0.5))
-    # add the plane obstacle to the swarm
-    swarm.add_planar_obstacle(plane_pos)
-
     # the plane normal should be towards the sphere center at 0,0,0
     plane_normal = np.zeros_like(plane_pos) - plane_pos
+
+    # add the plane obstacle to the swarm
+    swarm.add_planar_obstacle((plane_pos, plane_normal))
+
     # these points use the velocty for orientation
     plane_body = VelocityPoint(init_pos=plane_pos,
                                init_vel=plane_normal)
@@ -376,20 +435,19 @@ if __name__=='__main__':
     sphere_err = []
     traces = []
     edges = []
-    movements = []
 
     # main sim loop
     while not rospy.is_shutdown():
         # update the physics of the swarm many times per view update
         for tick in range(ticks_per_view):
-            movement = swarm.handle_plane_collisions()
             forces = swarm.calc_forces(dt)
+            #  forces = swarm.handle_plane_collisions()
+            forces = swarm.handle_obstacle_forces(dt, forces)
             swarm.update(dt, forces=forces)
             # record for later
             edges.append(swarm.cage_status())
             traces.append(np.copy(swarm._pos))
             sphere_err.append(swarm.check_sphere())
-            movements.append(movement)
         # finally show the state of the swarm
         swarm_view.update()
 
@@ -400,13 +458,21 @@ if __name__=='__main__':
             print('all dead')
             break
 
+    # send the final locations to rviz
+    for i in range(20):
+        swarm_view.update()
+        rate2.sleep()
+
     # time, agent, (x,y,z)
     traces = np.array(traces)
     # time, edge, [(x,y,z), (x,y,z)]
     edges_in_time = np.array(edges)
+    # time, agent
+    #  collisions = np.array(collisions)
 
 ####################################################################################################################
     import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D #needed for '3d'
     plt.ion()
 
     #  plt.figure()
@@ -415,45 +481,36 @@ if __name__=='__main__':
     #  plt.ylabel('sphere err')
     #  plt.title('sphere error')
 
-    uvr_pos = np.array([G.xyz_to_uvr(pos) for pos in swarm.get_positions()])
-    plt.figure()
-    plt.scatter(uvr_pos[:,0], uvr_pos[:,1])
-
-    # plot the path of the agents
-    for agent_index in range(traces.shape[1]):
-        trace = traces[:,agent_index,:]
-        uvr_trace = G.xyz_to_uvr(trace)
-        plt.plot(uvr_trace[:,0], uvr_trace[:,1])
-
-
-    # also plot the plane in uv coords to see if agents collided with it
-    fig = plt.gcf()
-    ax = fig.gca()
-    # center u, center v, radius of plane in theta-phi coordinates
-    cu,cv,gamma = G.plane_sphere_intersection_in_uvr(plane_pos, 1)
-    plane_circle = plt.Circle( (cu,cv), gamma, color='r', alpha=0.2 )
-    ax.add_artist(plane_circle)
-
-    for movement in movements:
-        if np.any(movement > 0):
-            for single_move in movement:
-                if any(single_move) > 0:
-                    plt.plot([cu, single_move[0]], [cv, single_move[1]], alpha=0.2)
-
-
-
-
-    plt.xlabel('theta')
-    #  plt.xlim(xmin=-np.pi/2, xmax=np.pi/2)
-    plt.ylabel('phi')
-    #  plt.ylim(ymin=-np.pi, ymax=np.pi)
-    plt.title('spherical traces')
-
     edge_lens = []
-    for edges in edges_in_time:
+    for t,edges in enumerate(edges_in_time):
         time_lens = []
         for edge in edges:
             L = G.euclid_distance(edge[0], edge[1])
             time_lens.append(L)
         edge_lens.append(time_lens)
     print('final edge lens:',edge_lens[-1])
+    plt.figure()
+    edge_lens = np.array(edge_lens)
+    for i in range(edge_lens.shape[1]):
+        plt.plot(edge_lens[:,i])
+    plt.axhline(1.63, linestyle='--')
+    plt.xlabel('sim ticks')
+    plt.ylabel('edge lengths of cage')
+    plt.title('cage edges over time')
+
+    fig = plt.figure(figsize=(10,10))
+    plt.axis('equal')
+    ax = fig.add_subplot(111, projection='3d')
+    ax.azim=45
+    ax.elev=30
+    ax.scatter(swarm._pos[:,0], swarm._pos[:,1], swarm._pos[:,2])
+    ax.scatter(plane_pos[0], plane_pos[1], plane_pos[2], color='r')
+    ax.scatter([0],[0],[0], color='g')
+
+    for i in range(N):
+        ax.plot3D(traces[:,i,0],traces[:,i,1],traces[:,i,2])
+
+    plt.title('trajectories of points')
+
+
+

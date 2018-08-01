@@ -83,11 +83,19 @@ def project_vec(X,Y):
     """
     project a vector X onto a vector Y
     literally find the closest point on (0,0)-Y to X, return it
+
+    X can be (N,2) or (N,3)
     """
     X = np.array(X)
     Y = np.array(Y)
 
-    return ( X.dot(Y) / Y.dot(Y) ) * Y
+    div = X.dot(Y)/Y.dot(Y)
+    res = np.outer(div, Y)
+
+    if X.shape == (2,) or X.shape == (3,):
+        return res[0]
+
+    return res
 
 
 def vec2_rotate(vec2, rad):
@@ -444,6 +452,30 @@ def trace_line_segment(p1,p2,ratio):
     return (a,b)
 
 
+def project_point_to_plane(P, A, n):
+    """
+    project a given point P to the closest point on the plane.
+    A is a point on said plane and n is its normal vector
+    P can be (N,3)
+
+    returns the projected point and the distance of the point to the plane
+    if distance is negative, then P is on the 'wrong' side of the plane.
+    'wrong' meaning the point is not where the normal is pointing towards
+    """
+
+    P = np.array(P)
+    A = np.array(A)
+    n = np.array(n)
+
+    v = P - A
+    dist = np.dot(v,n)
+    projected = P - np.outer(dist, n)
+    if P.shape == (3,):
+        return projected[0], dist
+
+    return projected, dist
+
+
 ########################################################################
 
 # SPHERICAL STUFF
@@ -504,43 +536,6 @@ def uvr_to_xyz(p):
         return res[0]
 
     return res
-
-def plane_sphere_intersection_in_uvr(A, R):
-    """
-    consider a sphere of radius R centered at C == (0,0,0)
-    and a plane described by a point A and a normal vector n = A-C.
-    if A is 'inside' the sphere, the plane instersects the sphere,
-    creating a circle on the sphere, centered on A with radius r.
-    This function returns the description of this circle in spherical coordinates (u,v,r).
-    See the 'uvr_to_xyz' or 'xyz_to_uvr' functions.
-
-    The intersection circle is described with a center and radius in spherical coordinates.
-    returns (u,v,gamma) where (u,v) is (theta,phi) center and gamma is the radius.
-    """
-
-    # how much the plane is 'inside' the sphere
-    # distance of A to C
-    # C is assumed origin
-    a = vec_len(A)
-    if a == 0:
-        # the plane intersects the sphere by going thourgh the center of it
-        # the opening angle is 90 in this case
-        return (0,0, np.pi/2)
-    # the opening angle between AC and BC, where B is any point
-    # on the circle intersection
-    gamma = np.arccos(a / R)
-
-    # spherical coords of the point A gives us the center of the circle.
-    # the radius here should be the same as a
-    u,v,r = xyz_to_uvr(A)
-    assert a == r
-
-    return u,v,gamma
-
-
-
-
-
 
 
 if __name__=='__main__':
@@ -647,37 +642,19 @@ if __name__=='__main__':
     assert all( np.abs(uvr_to_xyz((0,0,1)) - [0.,0.,1.]) <= [0,0,0] )
     print('uvr to xyz ok')
 
+    proj, dist = project_point_to_plane([0,0,10], (0,0,1), (0,0,1))
+    assert all(proj==(0,0,1)) and dist==9
+    proj, dist = project_point_to_plane([0,0,10], (0,0,1), (0,0,-1))
+    assert all(proj==(0,0,1)) and dist==-9
+    print('project_point_to_plane ok')
 
-    R = 1
-    # this plane is tangent to the sphere, so the gamma opening is 0
-    # when the plane is 'on top', the circle in u,v is centered on origin
-    assert plane_sphere_intersection_in_uvr( (0,0,1), R ) == (0.,0.,0.)
-    # this plane is intersecting the center of the circle
-    assert plane_sphere_intersection_in_uvr( (0,0,0), R ) == (0., 0., np.pi/2)
-    # the rest are hard to calc by hand so meh
-    print('plane_sphere_intersection_in_uvr ok')
+    X = np.random.random((20,2))
+    #  X = [1,2]
+    Y = [0,1]
 
-    import matplotlib.pyplot as plt
-    plt.ion()
+    X = np.array(X)
+    Y = np.array(Y)
 
-    nx = 50
-    ny = 50
-    xs = np.linspace(-1,1,nx)
-    ys = np.linspace(-1,1,ny)
-    xx, yy = np.meshgrid(xs,ys)
-    uvrs = []
-    for i in range(nx):
-        for j in range(ny):
-            uvrs.append(xyz_to_uvr((xx[i,j], yy[i,j], 1)))
-    uvrs = np.array(uvrs)
-    plt.scatter(uvrs[:,0], uvrs[:,1], c='b', alpha=0.2)
-
-    uvrs = []
-    for i in range(nx):
-        for j in range(ny):
-            uvrs.append(xyz_to_uvr((xx[i,j], yy[i,j], 10)))
-    uvrs = np.array(uvrs)
-    plt.scatter(uvrs[:,0], uvrs[:,1], c='r', alpha=0.2)
-
-
+    div = X.dot(Y)/Y.dot(Y)
+    res = np.outer(div, Y)
 
