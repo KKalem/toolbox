@@ -60,7 +60,8 @@ class DynamicPointSwarm:
         """
 
         alives = np.abs(self._vel) >= vel_limit
-        return np.sum(alives) > 1
+        return True
+        #  return np.sum(alives) > 1
 
     def cage_status(self):
         """
@@ -212,6 +213,7 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         return distances
 
 
+    #  def handle_obstacle_forces(self, dt, sphere_forces, point_forces):
     def handle_obstacle_forces(self, dt, forces):
         """
         given some forces currently acting on points, return forces that wont make points
@@ -265,22 +267,26 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
             # mask out the points that wont pass over
             for i in range(3):
                 penetrative_f[:,i] *= zero_out
-            # testing
-            anti_penetrative_f = -penetrative_f
+            anti_penetrative_f = penetrative_f
+
 
             # pushing force is simply the plane's normal. how powerful it should be is another question.
             # simply the distance to plane is probably a good start
             pushing_f = -np.outer(current_distances ,n)
+            # HACK4lyfe
+            #  pushing_f += np.random.random(pushing_f.shape)*0.5
             #  pushing_f = np.outer([2]*N, n)
             for i in range(3):
                 pushing_f[:,i] *= push_out
+            pushing_f *= 500
 
-            print('--')
-            print(penetrative_f)
-            print(pushing_f)
-            print(zero_out)
-            print(push_out)
-            print(do_nothing)
+
+            #  print('--')
+            #  print(penetrative_f)
+            #  print(pushing_f)
+            #  print(zero_out)
+            #  print(push_out)
+            #  print(do_nothing)
             # penetrative_f and pushing_f should have mutually exclusive non-zero elements
             # so it is safe to sum them up
             # we need to negate the penetrative to make it 'anti-penetrative'
@@ -308,14 +314,12 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         return errs
 
 
-    def calc_forces(self, dt):
+    def calc_sphere_forces(self, dt):
         """
         calc the net force acting on all points.
         """
 
         forces = np.zeros_like(self._pos)
-        tangent_forces = np.zeros_like(self._pos)
-
         surface_errors = self.check_sphere()
 
         for i,this in enumerate(self._pos):
@@ -334,11 +338,20 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
             if np.abs(surface_error) > self._max_surf_error:
                 continue
 
+        return forces
 
+    def calc_point_forces(self, dt):
+        forces = np.zeros_like(self._pos)
+        tangent_forces = np.zeros_like(self._pos)
+
+        for i,this in enumerate(self._pos):
+            # this is the normal vector on the sphere, we want the forces to be 0
+            # on this vector so that the point does not try to move away from the sphere surface
+            _, normal_vec = G.vec_normalize(this - self._center)
             # add up all the other points' effects on this point.
             for j,other in enumerate(self._pos):
                 dist = G.euclid_distance(this, other)
-                if dist < 0.01:
+                if dist < 0.05:
                     # disregards self and too-close points
                     continue
 
@@ -367,13 +380,13 @@ if __name__=='__main__':
     import rospy
 
     # N, num of agents
-    N = 6
+    N = 4
     # dt, time step per sim tick
     dt = 0.005
     # ups, updates per second for ros stuff to update
     ups = 60
     # ticker per view, how many sim ticks to run per view update
-    ticks_per_view = 1
+    ticks_per_view = 20
 
     # init the usual ros stuff
     rospy.init_node('rosviewtest', anonymous=True)
@@ -405,9 +418,10 @@ if __name__=='__main__':
 
     # a plane that is a little inside the sphere at 0,0,0 with r=1
     #  plane_pos = G.uvr_to_xyz((np.pi/6, np.pi/4, 0.5))
-    plane_pos = G.uvr_to_xyz((1, np.pi/6, 0.7))
+    plane_pos = G.uvr_to_xyz((0, 0, 0.2))
     # the plane normal should be towards the sphere center at 0,0,0
     plane_normal = np.zeros_like(plane_pos) - plane_pos
+    _, plane_normal = G.vec_normalize(plane_normal)
 
     # add the plane obstacle to the swarm
     swarm.add_planar_obstacle((plane_pos, plane_normal))
@@ -418,9 +432,10 @@ if __name__=='__main__':
     plane_view = RosPoseView(body=plane_body,
                              topic='/plane_obstacle')
 
-    plane_pos2 = G.uvr_to_xyz((1, np.pi/6, -0.7))
+    plane_pos2 = G.uvr_to_xyz((0, 0, -0.2))
     # the plane normal should be towards the sphere center at 0,0,0
-    plane_normal2 = np.zeros_like(plane_pos) - plane_pos
+    plane_normal2 = np.zeros_like(plane_pos2) - plane_pos2
+    _, plane_normal2 = G.vec_normalize(plane_normal2)
 
     # add the plane obstacle to the swarm
     swarm.add_planar_obstacle((plane_pos2, plane_normal2))
@@ -463,12 +478,17 @@ if __name__=='__main__':
     traces = []
     edges = []
     applied_forces = []
+    sphere_forces_over_time = []
+    point_forces_over_time = []
 
     # main sim loop
     while not rospy.is_shutdown():
         # update the physics of the swarm many times per view update
         for tick in range(ticks_per_view):
-            forces = swarm.calc_forces(dt)
+            sphere_forces = swarm.calc_sphere_forces(dt)
+            point_forces = swarm.calc_point_forces(dt)
+            point_forces *= 0.01
+            forces = sphere_forces+point_forces
             forces = swarm.handle_obstacle_forces(dt, forces)
             swarm.update(dt, forces=forces)
             # record for later
@@ -476,6 +496,8 @@ if __name__=='__main__':
             traces.append(np.copy(swarm._pos))
             sphere_err.append(swarm.check_sphere())
             applied_forces.append(forces)
+            sphere_forces_over_time.append(sphere_forces)
+            point_forces_over_time.append(point_forces)
 
         # finally show the state of the swarm
         swarm_view.update()
@@ -497,6 +519,8 @@ if __name__=='__main__':
     edges_in_time = np.array(edges)
     # time, agent, (u,v,w)
     applied_forces = np.array(applied_forces)
+    point_forces_over_time = np.array(point_forces_over_time)
+    sphere_forces_over_time = np.array(sphere_forces_over_time)
 
 ####################################################################################################################
     import matplotlib.pyplot as plt
@@ -513,8 +537,9 @@ if __name__=='__main__':
     edge_lens = []
     for t,edges in enumerate(edges_in_time):
         for edge in edges:
-            L = G.euclid_distance(edge[0], edge[1])
-            edge_lens.append((t,L))
+            if edge is not None:
+                L = G.euclid_distance(edge[0], edge[1])
+                edge_lens.append((t,L))
     edge_lens = np.array(edge_lens)
 
     plt.subplot(1,2,2)
@@ -528,25 +553,34 @@ if __name__=='__main__':
     plt.ylim(0,3)
     plt.title('cage edges over time')
 
-    fig = plt.figure(figsize=(10,10))
-    plt.axis('equal')
-    ax = fig.add_subplot(111, projection='3d')
-    ax.azim=45
-    ax.elev=30
-    ax.scatter(swarm._pos[:,0], swarm._pos[:,1], swarm._pos[:,2])
-    ax.scatter(plane_pos[0], plane_pos[1], plane_pos[2], color='r')
-    ax.scatter([0],[0],[0], color='g')
-
-    for i in range(N):
-        ax.plot3D(traces[:,i,0],traces[:,i,1],traces[:,i,2])
+    #  fig = plt.figure(figsize=(10,10))
+    #  plt.axis('equal')
+    #  ax = fig.add_subplot(111, projection='3d')
+    #  ax.azim=45
+    #  ax.elev=30
+    #  ax.scatter(swarm._pos[:,0], swarm._pos[:,1], swarm._pos[:,2])
+    #  ax.scatter(plane_pos[0], plane_pos[1], plane_pos[2], color='r')
+    #  ax.scatter([0],[0],[0], color='g')
+#
+    #  for i in range(N):
+    #  #  i = 3
+        #  ax.plot3D(traces[:,i,0],traces[:,i,1],traces[:,i,2])
+        #  #  ax.quiver(traces[:,i,0],traces[:,i,1],traces[:,i,2],
+                  #  #  applied_forces[:,i,0],applied_forces[:,i,1],applied_forces[:,i,2],
+                  #  #  length=0.1, normalize=True, color='b', alpha=0.3)
+#
         #  ax.quiver(traces[:,i,0],traces[:,i,1],traces[:,i,2],
-                  #  applied_forces[:,i,0],applied_forces[:,i,1],applied_forces[:,i,2],
-                  #  length=0.1, normalize=True)
-
-    ax.set_xlim(left=-1,right=1)
-    ax.set_ylim(bottom=-1,top=1)
-    ax.set_zlim(bottom=-1,top=1)
-    plt.title('trajectories of points')
-
+                  #  point_forces_over_time[:,i,0],point_forces_over_time[:,i,1],point_forces_over_time[:,i,2],
+                  #  length=0.1, normalize=True, color='r', alpha=0.3)
+#
+        #  ax.quiver(traces[:,i,0],traces[:,i,1],traces[:,i,2],
+                  #  sphere_forces_over_time[:,i,0],sphere_forces_over_time[:,i,1],sphere_forces_over_time[:,i,2],
+                  #  length=0.1, normalize=True, color='g', alpha=0.3)
+#
+    #  ax.set_xlim(left=-1,right=1)
+    #  ax.set_ylim(bottom=-1,top=1)
+    #  ax.set_zlim(bottom=-1,top=1)
+    #  plt.title('trajectories of points')
+#
 
 
