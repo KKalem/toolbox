@@ -59,21 +59,29 @@ class RosPoseView:
 
 
 class RosMarkerArrayView:
-    def __init__(self,
-                 ros_pose_viewers,
-                 mesh_paths,
-                 mesh_rgbas,
-                 mesh_scales):
-
+    def __init__(self):
         self.last_used_id = -1
 
         self.pub = rospy.Publisher('/rviz_marker_array', MarkerArray, queue_size=1)
         self.marker_array = MarkerArray()
 
-        for poseview,mesh_path,mesh_scale,mesh_rgba in zip(ros_pose_viewers,
-                                                            mesh_paths,
-                                                            mesh_scales,
-                                                            mesh_rgbas):
+        self.ros_pose_viewers = []
+        self.mesh_paths = []
+        self.mesh_scales = []
+        self.mesh_rgbas = []
+
+
+    def add_view(self, pose_view, mesh_path, mesh_scale, mesh_rgba):
+        self.ros_pose_viewers.append(pose_view)
+        self.mesh_paths.append(mesh_path)
+        self.mesh_scales.append(mesh_scale)
+        self.mesh_rgbas.append(mesh_rgba)
+
+    def init(self):
+        for poseview,mesh_path,mesh_scale,mesh_rgba in zip(self.ros_pose_viewers,
+                                                           self.mesh_paths,
+                                                           self.mesh_scales,
+                                                           self.mesh_rgbas):
             marker = Marker()
             marker.ns = '/marker_array'
             marker.id = self.last_used_id+1

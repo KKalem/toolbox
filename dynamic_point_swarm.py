@@ -7,6 +7,7 @@
 
 import numpy as np
 from scipy.spatial import Delaunay
+import time
 
 import geometry as G
 import Pid
@@ -60,8 +61,7 @@ class DynamicPointSwarm:
         """
 
         alives = np.abs(self._vel) >= vel_limit
-        return True
-        #  return np.sum(alives) > 1
+        return np.sum(alives) > 1
 
     def cage_status(self):
         """
@@ -278,15 +278,12 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
             #  pushing_f = np.outer([2]*N, n)
             for i in range(3):
                 pushing_f[:,i] *= push_out
+
+            # hacky, gives planes immense power to push out stuff
+            # works though.
             pushing_f *= 500
 
 
-            #  print('--')
-            #  print(penetrative_f)
-            #  print(pushing_f)
-            #  print(zero_out)
-            #  print(push_out)
-            #  print(do_nothing)
             # penetrative_f and pushing_f should have mutually exclusive non-zero elements
             # so it is safe to sum them up
             # we need to negate the penetrative to make it 'anti-penetrative'
@@ -294,9 +291,6 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
             forces += anti_penetrative_f
             # then add the pushing out forces where needed
             forces += pushing_f
-
-
-
 
         # reset to real current values
         self._pos = current_real_pos
@@ -375,21 +369,26 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
 
 
 if __name__=='__main__':
+    ########################################################################################
     from rosview import RosSwarmView, RosPoseView, RosMarkerArrayView
     from dynamic_point import VelocityPoint
     import rospy
 
     # N, num of agents
-    N = 4
+    N = 21
     # dt, time step per sim tick
     dt = 0.005
     # ups, updates per second for ros stuff to update
     ups = 60
     # ticker per view, how many sim ticks to run per view update
-    ticks_per_view = 20
+    ticks_per_view = 5
+
+    # set to false when not running a profiler
+    profiling = False
 
     # init the usual ros stuff
-    rospy.init_node('rosviewtest', anonymous=True)
+    rospy.init_node('rosviewtest', anonymous=True, disable_signals=profiling)
+
     rate = rospy.Rate(ups)
 
     # create the swarm with random starting positions
@@ -399,9 +398,16 @@ if __name__=='__main__':
                                     mass=0.01,
                                     damping=0.05)
 
+    # we want fancy stuff to be shown, put them in a marker array
+    # make the meshes slightly transparent
+    marker_array = RosMarkerArrayView()
+
     # where the mesh files to display are stored for viewing
     mesh_dir = '/home/ozer/Dropbox/projects/toolbox/'
 
+    ########################################################################################
+    # SWARM INIT
+    ########################################################################################
     # create the swarm view so we can see stuff in rviz
     swarm_view = RosSwarmView(swarm=swarm,
                               mesh_path=mesh_dir+'known_arrow.dae',
@@ -414,11 +420,14 @@ if __name__=='__main__':
     sphere_body = VelocityPoint(init_pos=(0, 0, 0))
     sphere_view = RosPoseView(body=sphere_body,
                               topic='/sphere_cage')
+    marker_array.add_view(sphere_view, mesh_dir+'known_sphere.dae',(1,1,1),(0.2,0.2,0.8,0.2))
 
-
+    ########################################################################################
+    # PLANE 1
+    ########################################################################################
     # a plane that is a little inside the sphere at 0,0,0 with r=1
     #  plane_pos = G.uvr_to_xyz((np.pi/6, np.pi/4, 0.5))
-    plane_pos = G.uvr_to_xyz((0, 0, 0.2))
+    plane_pos = G.uvr_to_xyz((0, 0, 0.8))
     # the plane normal should be towards the sphere center at 0,0,0
     plane_normal = np.zeros_like(plane_pos) - plane_pos
     _, plane_normal = G.vec_normalize(plane_normal)
@@ -431,8 +440,12 @@ if __name__=='__main__':
                                init_vel=plane_normal)
     plane_view = RosPoseView(body=plane_body,
                              topic='/plane_obstacle')
+    marker_array.add_view(plane_view, mesh_dir+'known_plane.dae',(5,5,5),(0.8,0.2,0.2,0.5))
 
-    plane_pos2 = G.uvr_to_xyz((0, 0, -0.2))
+    #######################################################################################
+    # PLANE 2
+    #######################################################################################
+    plane_pos2 = G.uvr_to_xyz((0, 0, -0.8))
     # the plane normal should be towards the sphere center at 0,0,0
     plane_normal2 = np.zeros_like(plane_pos2) - plane_pos2
     _, plane_normal2 = G.vec_normalize(plane_normal2)
@@ -445,23 +458,13 @@ if __name__=='__main__':
                                init_vel=plane_normal2)
     plane_view2 = RosPoseView(body=plane_body2,
                              topic='/plane_obstacle')
+    marker_array.add_view(plane_view2, mesh_dir+'known_plane.dae',(5,5,5),(0.8,0.2,0.2,0.5))
 
-    # we want fancy stuff to be shown, put them in a marker array
-    # make the meshes slightly transparent
-    marker_array = RosMarkerArrayView(ros_pose_viewers=[sphere_view,
-                                                        plane_view,
-                                                        plane_view2],
-                                      mesh_paths = [mesh_dir+'known_sphere.dae',
-                                                    mesh_dir+'known_plane.dae',
-                                                    mesh_dir+'known_plane.dae'],
-                                      mesh_rgbas = [(0.2, 0.2, 0.8, 0.2),
-                                                    (0.8, 0.2, 0.2, 0.5),
-                                                    (0.8, 0.2, 0.2, 0.5)],
-                                      mesh_scales = [(1, 1, 1),
-                                                     (5, 5, 5),
-                                                     (5, 5, 5)])
-
-
+    ########################################################################################
+    # INITIALIZE
+    ########################################################################################
+    # before we update, initialize the marker array
+    marker_array.init()
 
     # update these for a little while until rviz realizes whats up and shows them
     rate2 = rospy.Rate(200)
@@ -481,16 +484,24 @@ if __name__=='__main__':
     sphere_forces_over_time = []
     point_forces_over_time = []
 
+    tick_times = []
+
+    ########################################################################################
+    # MAIN LOOP
+    ########################################################################################
     # main sim loop
     while not rospy.is_shutdown():
         # update the physics of the swarm many times per view update
         for tick in range(ticks_per_view):
+            t0 = time.time()
             sphere_forces = swarm.calc_sphere_forces(dt)
             point_forces = swarm.calc_point_forces(dt)
             point_forces *= 0.01
             forces = sphere_forces+point_forces
             forces = swarm.handle_obstacle_forces(dt, forces)
             swarm.update(dt, forces=forces)
+            tick_times.append(time.time()-t0)
+
             # record for later
             edges.append(swarm.cage_status())
             traces.append(np.copy(swarm._pos))
@@ -505,14 +516,24 @@ if __name__=='__main__':
 
         # stop if agents converged
         if not swarm._any_alive():
-            print('all dead')
+            print('All dead. Avg ticks per second:', 1/np.average(tick_times))
             break
 
+    ########################################################################################
+    # FINALIZE
+    ########################################################################################
     # send the final locations to rviz
     for i in range(50):
         swarm_view.update()
         rate2.sleep()
 
+    # no need to profile plotting
+    if profiling:
+        import sys
+        sys.exit(0)
+    ########################################################################################
+    # PLOTTING
+    ########################################################################################
     # time, agent, (x,y,z)
     traces = np.array(traces)
     # time, edge, [(x,y,z), (x,y,z)]
@@ -522,11 +543,12 @@ if __name__=='__main__':
     point_forces_over_time = np.array(point_forces_over_time)
     sphere_forces_over_time = np.array(sphere_forces_over_time)
 
-####################################################################################################################
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D #needed for '3d'
     plt.ion()
+    import plotting as P
 
+    ########################################################################################
     plt.figure()
     plt.subplot(1,2,1)
     plt.plot(sphere_err)
@@ -552,35 +574,49 @@ if __name__=='__main__':
     plt.ylabel('edge lengths of cage')
     plt.ylim(0,3)
     plt.title('cage edges over time')
+    ########################################################################################
 
-    #  fig = plt.figure(figsize=(10,10))
-    #  plt.axis('equal')
-    #  ax = fig.add_subplot(111, projection='3d')
-    #  ax.azim=45
-    #  ax.elev=30
-    #  ax.scatter(swarm._pos[:,0], swarm._pos[:,1], swarm._pos[:,2])
-    #  ax.scatter(plane_pos[0], plane_pos[1], plane_pos[2], color='r')
-    #  ax.scatter([0],[0],[0], color='g')
-#
-    #  for i in range(N):
-    #  #  i = 3
-        #  ax.plot3D(traces[:,i,0],traces[:,i,1],traces[:,i,2])
-        #  #  ax.quiver(traces[:,i,0],traces[:,i,1],traces[:,i,2],
-                  #  #  applied_forces[:,i,0],applied_forces[:,i,1],applied_forces[:,i,2],
-                  #  #  length=0.1, normalize=True, color='b', alpha=0.3)
-#
-        #  ax.quiver(traces[:,i,0],traces[:,i,1],traces[:,i,2],
-                  #  point_forces_over_time[:,i,0],point_forces_over_time[:,i,1],point_forces_over_time[:,i,2],
-                  #  length=0.1, normalize=True, color='r', alpha=0.3)
-#
-        #  ax.quiver(traces[:,i,0],traces[:,i,1],traces[:,i,2],
-                  #  sphere_forces_over_time[:,i,0],sphere_forces_over_time[:,i,1],sphere_forces_over_time[:,i,2],
-                  #  length=0.1, normalize=True, color='g', alpha=0.3)
-#
-    #  ax.set_xlim(left=-1,right=1)
-    #  ax.set_ylim(bottom=-1,top=1)
-    #  ax.set_zlim(bottom=-1,top=1)
-    #  plt.title('trajectories of points')
-#
+    fig, ax = P.make_3d_fig()
+    P.scatter3(ax, swarm._pos)
+    P.scatter3(ax, plane_pos, color='r')
+    P.scatter3(ax, np.array((0,0,0)), color='g')
+
+    every=200
+    for i in range(N):
+        P.plot3(ax, traces[::every][:,i,:])
+        P.arrows3(ax, traces[::every][:,i,:], point_forces_over_time[::every][:,i,:], length=0.1, normalize=True, color='r', alpha=0.3)
+        P.arrows3(ax, traces[::every][:,i,:], sphere_forces_over_time[::every][:,i,:], length=0.1, normalize=True, color='r', alpha=0.3)
+
+    ax.set_xlim(left=-1,right=1)
+    ax.set_ylim(bottom=-1,top=1)
+    ax.set_zlim(bottom=-1,top=1)
+    plt.title('trajectories of points')
+
+
+
+
+    ########################################################################################
+    # plot a sphere, check each point for coverage
+    nu, nv = 160, 160
+    sensor_range = 0.5
+    uu, vv = np.meshgrid(np.linspace(0,np.pi,nu), np.linspace(-np.pi, np.pi, nv))
+    colors = []
+    xyzs = []
+    for i in range(nu):
+        for j in range(nv):
+            xyz = G.uvr_to_xyz((uu[i,j],vv[i,j],1))
+            xyzs.append(xyz)
+            dist = G.euclid_distance(xyz, swarm._pos)
+            mindist = np.min(dist)
+            colors.append(mindist)
+
+    # normalize colors to 0-1
+    colors = np.array(colors)
+    maxdist = np.max(colors)
+    colors /= maxdist
+
+    fig, ax = P.make_3d_fig()
+    P.scatter3(ax, swarm._pos, c='r')
+    c = P.surface_tri(ax, xyzs, uu, vv, colors, cmap='Greens', linewidth=0, shade=False, alpha=0.9)
 
 
