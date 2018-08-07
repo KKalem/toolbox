@@ -8,6 +8,7 @@
 import numpy as np
 from scipy.spatial import Delaunay
 import time
+import sys
 
 import geometry as G
 import Pid
@@ -98,21 +99,24 @@ class DynamicPointSwarm:
 
         return np.array(list(edges.values()))
 
-    def update(self, dt, forces=None, return_positions=False):
+    def update(self, dt, forces=None, return_positions=False, max_force_allowed=10):
         """
         dt is time spent for this update in seconds
         forces is an np array of size (N,3)
 
         if return_positions is True, returns a copy of the position array
+        max_force_allowed clips the applied forces to +- that value so that the points do not
+        fly off into the sun.
         """
 
         if forces is None:
-            forces = np.zeros((self._num_points,3))
+            forces = np.zeros_like(self._pos)
         else:
             if forces.shape != self._vel.shape:
                 raise Exception('Force shape not the same as velocities! '+str(forces.shape))
 
-
+        # prevent sun visits
+        np.clip(forces, -10, 10, out=forces)
         # apply simple damping
         self._vel *= (1 - self._damping)
         # F = ma
@@ -185,35 +189,8 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         """
         self.planar_obstacles.append(p)
 
-    def handle_plane_collisions(self):
-        """
-        'push' the points to the plane such that they are at the side of the plane where the normal
-        vector is pointing towards
-        """
-
-        for A,n in self.planar_obstacles:
-            # project the points on the plane, if dist < 0 then the point
-            # needs to be moved to the projected point
-            projections, distances = G.project_point_to_plane(self._pos, A, n)
-            # difference from current positions to the projected positions
-            # we want to 0 out the difference where the point is on the 'right'
-            # side of the plane
-            # dX is towards the planes normal
-            dX = projections - self._pos
-            # this creates a boolean array where true=needs to be moved
-            mask = distances < 0
-            # mask is (N,) dX is (N,3), we want to create an
-            # (N,3) movement array that has (0,0,0) where mask=False
-            # basically multiply all rows with mask
-            for i in range(3):
-                dX[:,i] *= mask
-            self._pos += dX
-
-        # will break when more than one plane !!!!!!!!!!!!!!
-        return distances
 
 
-    #  def handle_obstacle_forces(self, dt, sphere_forces, point_forces):
     def handle_obstacle_forces(self, dt, forces):
         """
         given some forces currently acting on points, return forces that wont make points
@@ -335,7 +312,6 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         return forces
 
     def calc_point_forces(self, dt):
-        forces = np.zeros_like(self._pos)
         tangent_forces = np.zeros_like(self._pos)
 
         for i,this in enumerate(self._pos):
@@ -350,17 +326,20 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
                     continue
 
                 # magnitude of the force is not the vectors norm!
-                force_mag = self._charge / (dist**4)
+                force_mag = self._charge / (dist**2)
+                #  with np.errstate(divide='raise'):
+                    #  try:
+                        #  force_mag = self._charge / (dist**2)
+                    #  except RuntimeWarning:
+                        #  print('charge:',self._charge, 'dist', dist)
+
                 _, force_vec = G.vec_normalize(this - other)
                 force_vec *= force_mag
                 perpendicular_vec = G.project_vec(force_vec, normal_vec)
                 tangent_vec = force_vec - perpendicular_vec
                 tangent_forces[i] += tangent_vec
 
-        # finally add the tangent forces, if any, to the suface forces
-        # added previously
-        forces += tangent_forces
-        return forces
+        return tangent_forces
 
 
 
@@ -375,16 +354,19 @@ if __name__=='__main__':
     import rospy
 
     # N, num of agents
-    N = 21
+    N = 4
     # dt, time step per sim tick
-    dt = 0.005
+    # during run, the simulation will change between these when needed
+    dt_steps = [0.005, 0.01, 0.05]
+    current_dt_step = 0
     # ups, updates per second for ros stuff to update
     ups = 60
     # ticker per view, how many sim ticks to run per view update
-    ticks_per_view = 5
+    ticks_per_view = 20
 
     # set to false when not running a profiler
-    profiling = False
+    # this changes the ros init_node disable signal and plotting stuff
+    profiling = True
 
     # init the usual ros stuff
     rospy.init_node('rosviewtest', anonymous=True, disable_signals=profiling)
@@ -479,6 +461,7 @@ if __name__=='__main__':
     # to be plotted later
     sphere_err = []
     traces = []
+    velocities = []
     edges = []
     applied_forces = []
     sphere_forces_over_time = []
@@ -493,10 +476,26 @@ if __name__=='__main__':
     while not rospy.is_shutdown():
         # update the physics of the swarm many times per view update
         for tick in range(ticks_per_view):
+            # check the previous tick's applied forces and see if they are large or small
+            # used to dynamically change the time step for every sim tick
+            # to speed up those final ever-so-slightly-still-moving moments
+            # all values eye-balled
+            if len(applied_forces) > 0:
+                last_max_force = np.max(np.abs(applied_forces[-1]))
+                if last_max_force > 0.01:
+                    current_dt_step = 0
+                elif last_max_force <= 0.01:
+                    current_dt_step = 1
+                    if last_max_force <= 0.005:
+                        current_dt_step = 2
+
+            # update dt
+            dt = dt_steps[current_dt_step]
+
             t0 = time.time()
             sphere_forces = swarm.calc_sphere_forces(dt)
             point_forces = swarm.calc_point_forces(dt)
-            point_forces *= 0.01
+            point_forces *= 0.05
             forces = sphere_forces+point_forces
             forces = swarm.handle_obstacle_forces(dt, forces)
             swarm.update(dt, forces=forces)
@@ -509,6 +508,7 @@ if __name__=='__main__':
             applied_forces.append(forces)
             sphere_forces_over_time.append(sphere_forces)
             point_forces_over_time.append(point_forces)
+            velocities.append(np.copy(swarm._vel))
 
         # finally show the state of the swarm
         swarm_view.update()
@@ -517,6 +517,7 @@ if __name__=='__main__':
         # stop if agents converged
         if not swarm._any_alive():
             print('All dead. Avg ticks per second:', 1/np.average(tick_times))
+            print('Ticks:',len(applied_forces))
             break
 
     ########################################################################################
@@ -529,7 +530,6 @@ if __name__=='__main__':
 
     # no need to profile plotting
     if profiling:
-        import sys
         sys.exit(0)
     ########################################################################################
     # PLOTTING
@@ -597,7 +597,7 @@ if __name__=='__main__':
 
     ########################################################################################
     # plot a sphere, check each point for coverage
-    nu, nv = 160, 160
+    nu, nv = 300, 300
     sensor_range = 0.5
     uu, vv = np.meshgrid(np.linspace(0,np.pi,nu), np.linspace(-np.pi, np.pi, nv))
     colors = []
@@ -605,18 +605,42 @@ if __name__=='__main__':
     for i in range(nu):
         for j in range(nv):
             xyz = G.uvr_to_xyz((uu[i,j],vv[i,j],1))
+            # project point to the planes to see if it is 'outside' any
+            for A,n in swarm.planar_obstacles:
+                projection, distance = G.project_point_to_plane(xyz, A, n)
+                if distance < 0:
+                    xyz = projection
+                    break
+
             xyzs.append(xyz)
+
+            # color the planes differently
+            if distance<0:
+                colors.append(0.5)
+                continue
+
             dist = G.euclid_distance(xyz, swarm._pos)
             mindist = np.min(dist)
-            colors.append(mindist)
+            if mindist<sensor_range:
+                colors.append(1)
+            else:
+                colors.append(0)
 
     # normalize colors to 0-1
-    colors = np.array(colors)
+    colors = np.array(colors, dtype='float64')
     maxdist = np.max(colors)
     colors /= maxdist
 
     fig, ax = P.make_3d_fig()
-    P.scatter3(ax, swarm._pos, c='r')
-    c = P.surface_tri(ax, xyzs, uu, vv, colors, cmap='Greens', linewidth=0, shade=False, alpha=0.9)
+    fig.subplots_adjust(top=0.95, bottom=0.01, left=0.01, right=0.99)
+    ax.set_xlim(left=-1,right=1)
+    ax.set_ylim(bottom=-1,top=1)
+    ax.set_zlim(bottom=-1,top=1)
+    # move the agents a little outside the sphere so we can see them
+    pts = G.xyz_to_uvr(swarm._pos)
+    pts[:,2] += 0.05
+    pts = G.uvr_to_xyz(pts)
+    P.scatter3(ax, pts, c='r')
+    c = P.surface_tri(ax, xyzs, uu, vv, colors, cmap='seismic', linewidth=0, alpha=0.7)
 
 
