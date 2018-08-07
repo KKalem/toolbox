@@ -366,7 +366,7 @@ if __name__=='__main__':
 
     # set to false when not running a profiler
     # this changes the ros init_node disable signal and plotting stuff
-    profiling = True
+    profiling = False
 
     # init the usual ros stuff
     rospy.init_node('rosviewtest', anonymous=True, disable_signals=profiling)
@@ -405,42 +405,30 @@ if __name__=='__main__':
     marker_array.add_view(sphere_view, mesh_dir+'known_sphere.dae',(1,1,1),(0.2,0.2,0.8,0.2))
 
     ########################################################################################
-    # PLANE 1
+    # PLANES
     ########################################################################################
-    # a plane that is a little inside the sphere at 0,0,0 with r=1
-    #  plane_pos = G.uvr_to_xyz((np.pi/6, np.pi/4, 0.5))
-    plane_pos = G.uvr_to_xyz((0, 0, 0.8))
-    # the plane normal should be towards the sphere center at 0,0,0
-    plane_normal = np.zeros_like(plane_pos) - plane_pos
-    _, plane_normal = G.vec_normalize(plane_normal)
+    planes = [ (0,0,0.8), (0,0,-0.8), (1,1,0.6)]#, (1.2, 1.2, -0.6)]
+    plane_views = []
+    plane_bodies = []
+    for plane in planes:
+        # a plane that is a little inside the sphere at 0,0,0 with r=1
+        #  plane_pos = G.uvr_to_xyz((np.pi/6, np.pi/4, 0.5))
+        plane_pos = G.uvr_to_xyz(plane)
+        # the plane normal should be towards the sphere center at 0,0,0
+        plane_normal = np.zeros_like(plane_pos) - plane_pos
+        _, plane_normal = G.vec_normalize(plane_normal)
 
-    # add the plane obstacle to the swarm
-    swarm.add_planar_obstacle((plane_pos, plane_normal))
+        # add the plane obstacle to the swarm
+        swarm.add_planar_obstacle((plane_pos, plane_normal))
 
-    # these points use the velocty for orientation
-    plane_body = VelocityPoint(init_pos=plane_pos,
-                               init_vel=plane_normal)
-    plane_view = RosPoseView(body=plane_body,
-                             topic='/plane_obstacle')
-    marker_array.add_view(plane_view, mesh_dir+'known_plane.dae',(5,5,5),(0.8,0.2,0.2,0.5))
-
-    #######################################################################################
-    # PLANE 2
-    #######################################################################################
-    plane_pos2 = G.uvr_to_xyz((0, 0, -0.8))
-    # the plane normal should be towards the sphere center at 0,0,0
-    plane_normal2 = np.zeros_like(plane_pos2) - plane_pos2
-    _, plane_normal2 = G.vec_normalize(plane_normal2)
-
-    # add the plane obstacle to the swarm
-    swarm.add_planar_obstacle((plane_pos2, plane_normal2))
-
-    # these points use the velocty for orientation
-    plane_body2 = VelocityPoint(init_pos=plane_pos2,
-                               init_vel=plane_normal2)
-    plane_view2 = RosPoseView(body=plane_body2,
-                             topic='/plane_obstacle')
-    marker_array.add_view(plane_view2, mesh_dir+'known_plane.dae',(5,5,5),(0.8,0.2,0.2,0.5))
+        # these points use the velocty for orientation
+        plane_body = VelocityPoint(init_pos=plane_pos,
+                                   init_vel=plane_normal)
+        plane_view = RosPoseView(body=plane_body,
+                                 topic='/plane_obstacle')
+        plane_views.append(plane_view)
+        plane_bodies.append(plane_body)
+        marker_array.add_view(plane_view, mesh_dir+'known_plane.dae',(5,5,5),(0.8,0.2,0.2,0.5))
 
     ########################################################################################
     # INITIALIZE
@@ -452,8 +440,9 @@ if __name__=='__main__':
     rate2 = rospy.Rate(200)
     for i in range(100):
         # and show the markers
-        plane_view.update()
-        plane_view2.update()
+        for plane_view in plane_views:
+            plane_view.update()
+            #  plane_view2.update()
         sphere_view.update()
         marker_array.update()
         rate2.sleep()
@@ -597,11 +586,13 @@ if __name__=='__main__':
 
     ########################################################################################
     # plot a sphere, check each point for coverage
-    nu, nv = 300, 300
+    nu, nv = 100,100
     sensor_range = 0.5
     uu, vv = np.meshgrid(np.linspace(0,np.pi,nu), np.linspace(-np.pi, np.pi, nv))
     colors = []
     xyzs = []
+    sp_uvs = []
+    sp_colors = []
     for i in range(nu):
         for j in range(nv):
             xyz = G.uvr_to_xyz((uu[i,j],vv[i,j],1))
@@ -613,18 +604,22 @@ if __name__=='__main__':
                     break
 
             xyzs.append(xyz)
+            sp_uvs.append(G.xyz_to_uvr(xyz))
 
             # color the planes differently
             if distance<0:
                 colors.append(0.5)
+                sp_colors.append(0.5)
                 continue
 
             dist = G.euclid_distance(xyz, swarm._pos)
             mindist = np.min(dist)
             if mindist<sensor_range:
                 colors.append(1)
+                sp_colors.append(1)
             else:
                 colors.append(0)
+                sp_colors.append(0)
 
     # normalize colors to 0-1
     colors = np.array(colors, dtype='float64')
@@ -642,5 +637,15 @@ if __name__=='__main__':
     pts = G.uvr_to_xyz(pts)
     P.scatter3(ax, pts, c='r')
     c = P.surface_tri(ax, xyzs, uu, vv, colors, cmap='seismic', linewidth=0, alpha=0.7)
+
+    #############################################
+    # spherical coords plot
+    #############################################
+    sp_colors = np.array(sp_colors)
+    sp_uvs = np.array(sp_uvs)[:,:2]
+    plt.figure()
+    plt.scatter(sp_uvs[:,0], sp_uvs[:,1], c=sp_colors)
+    plt.title('uv-coords version')
+
 
 

@@ -78,7 +78,8 @@ def surface_tri(ax, pts, uu, vv, colors=None, **kwargs):
         # average the colors of the vertices for each triangle face
         # colors per triangle
         # colors[tri] basically chooses the vertices by triangles
-        colors = np.mean(colors[tri], axis=1)
+        colors = np.max(colors[tri], axis=1)
+        #  colors = np.mean(colors[tri], axis=1)
         ret.set_array(colors)
         ret.autoscale()
 
