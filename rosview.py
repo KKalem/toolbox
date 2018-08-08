@@ -116,17 +116,20 @@ class RosSwarmView:
                  swarm,
                  mesh_path,
                  mesh_rgba,
-                 mesh_scale):
+                 mesh_scale,
+                 last_used_id=999):
         """
         Similar to marker array view, but this assumes that the given array of stuff
         are all identical.
 
         swarm needs to have get_positions() and get_orientation_quats() functions.
+
+        if more than 1 swarm view is created, take care of last_used_id!
         """
 
         self.swarm = swarm
         #  self.last_used_id = -1
-        self.last_used_id = 999
+        self.last_used_id = last_used_id
         self.pub = rospy.Publisher('/rviz_marker_array', MarkerArray, queue_size=1)
 
         # create these ahead of time, just need to update before publishing

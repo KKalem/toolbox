@@ -151,19 +151,54 @@ class DynamicPointSwarm:
 
 class DynamicPointSphereSwarm(DynamicPointSwarm):
     def __init__(self,
-                 center=[0,0,0],
-                 radius=1,
+                 center=None,
+                 radius=None,
                  charge=1,
                  max_surf_error = 0.3,
                  **kwargs):
         """
         a swarm of points in 3D space with a soft restriction of staying
         on the given sphere
+
+        center can be a single (x,y,z) or (N,3) array
+        radius can be a single value or (N,) array
         """
         super().__init__(**kwargs)
 
-        self._center = np.array(center, dtype='float64')
-        self._radius = radius
+        N = self._pos.shape[0]
+
+        if center is None:
+            self._center = np.zeros_like(self._pos, dtype='float64')
+        else:
+            self._center = np.array(center, dtype='float64')
+            try:
+                # we were given a center per point
+                assert self._center.shape == self._pos.shape, "Given center shape is not same as positions shape!"
+            except:
+                # we were not given a center per point, a single center for all of them then?
+                self._center = np.atleast_2d(self._center)
+                self._center = np.vstack([center]*N)
+                assert self._center.shape == self._pos.shape, "Given center shape is not same as positions shape!"
+
+        if radius is None:
+            self._radius = np.ones_like(self._pos)
+        else:
+            self._radius = np.array(radius, dtype='float64')
+            try:
+                # enough radii for centers?
+                assert self._radius.shape[0] == self._center.shape[0]
+            except:
+                # nope, apparently not
+                # single radius?
+                if self._radius.shape == ():
+                    # this is only true if radius is a single number and not a list or sth. like it
+                    # we need a radius per center, even if they are the same
+                    self._radius = np.hstack([radius]*N)
+                assert self._radius.shape == (N,), "Radius is f'ed up yo"
+
+
+        self._center = np.array(self._center, dtype='float64')
+        self._radius = np.array(self._radius, dtype='float64')
         self._charge = charge
 
         # if away from the sphere this much, points will ignore others' push
@@ -177,6 +212,7 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
 
         # planar obstacles to 'collide' off of
         # see the similarly named function
+        # TODO yank this out into a function, doesnt need to be a method here
         self.planar_obstacles = []
 
 
@@ -295,13 +331,15 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
 
         for i,this in enumerate(self._pos):
             surface_error = surface_errors[i]
+            center = self._center[i]
+            pid = self._PIDs[i]
 
             # this is the normal vector on the sphere, we want the forces to be 0
             # on this vector so that the point does not try to move away from the sphere surface
-            _, normal_vec = G.vec_normalize(this - self._center)
+            _, normal_vec = G.vec_normalize(this - center)
             # we always want the point to go towards a point that is ON the sphere.
             # if it is somehow away from the surface, add a force that will push it towards it.
-            correction = self._PIDs[i].update(surface_error, dt)
+            correction = pid.update(surface_error, dt)
             forces[i] += normal_vec * correction
 
             # do not apply forces from others onto this particle if it is out of the sphere
@@ -317,7 +355,7 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         for i,this in enumerate(self._pos):
             # this is the normal vector on the sphere, we want the forces to be 0
             # on this vector so that the point does not try to move away from the sphere surface
-            _, normal_vec = G.vec_normalize(this - self._center)
+            _, normal_vec = G.vec_normalize(this - self._center[i])
             # add up all the other points' effects on this point.
             for j,other in enumerate(self._pos):
                 dist = G.euclid_distance(this, other)
@@ -327,12 +365,6 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
 
                 # magnitude of the force is not the vectors norm!
                 force_mag = self._charge / (dist**2)
-                #  with np.errstate(divide='raise'):
-                    #  try:
-                        #  force_mag = self._charge / (dist**2)
-                    #  except RuntimeWarning:
-                        #  print('charge:',self._charge, 'dist', dist)
-
                 _, force_vec = G.vec_normalize(this - other)
                 force_vec *= force_mag
                 perpendicular_vec = G.project_vec(force_vec, normal_vec)
@@ -342,8 +374,23 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         return tangent_forces
 
 
+    def change_centers(self, c):
+        """
+        replace centers with the given one
+        c needs to be the same shape as old center
+        """
+        c = np.array(c)
+        assert c.shape == self._center.shape, "given new centers not the same shape as old!"
+        self._center = c
 
-
+    def change_radius(self, r):
+        """
+        replace the radius of the swarm with the given one
+        new and old radius must have the same shape
+        """
+        r = np.array(r)
+        assert r.shape == self._radius.shape, "given new radius not the same shape as old!"
+        self._radius = r
 
 
 
@@ -354,10 +401,11 @@ if __name__=='__main__':
     import rospy
 
     # N, num of agents
-    N = 4
+    N = 12
     # dt, time step per sim tick
     # during run, the simulation will change between these when needed
-    dt_steps = [0.005, 0.01, 0.05]
+    #  dt_steps = [0.005, 0.01, 0.05]
+    dt_steps = [0.005, 0.005, 0.005]
     current_dt_step = 0
     # ups, updates per second for ros stuff to update
     ups = 60
@@ -366,7 +414,7 @@ if __name__=='__main__':
 
     # set to false when not running a profiler
     # this changes the ros init_node disable signal and plotting stuff
-    profiling = False
+    profiling = True
 
     # init the usual ros stuff
     rospy.init_node('rosviewtest', anonymous=True, disable_signals=profiling)
@@ -375,10 +423,23 @@ if __name__=='__main__':
 
     # create the swarm with random starting positions
     init_pos = (np.random.random((N,3))*2)-1
+    #  centers = [ (0,0,0), (1,0,0), (0,1,0), (0,0,1) ]
+    #  radii = [ 0.2, 0.2, 0.2, 0.2]
+    centers = [0,0,0]
+    radii = 1
     # with some small mass and damping
     swarm = DynamicPointSphereSwarm(init_pos=init_pos,
+                                    center=centers,
+                                    radius=radii,
                                     mass=0.01,
                                     damping=0.05)
+
+    spike_init_pos = (np.random.random((N,3))*2)-1
+    spikes = DynamicPointSphereSwarm(init_pos=spike_init_pos,
+                                     center=init_pos,
+                                     radius=[0.4]*N,
+                                     mass=0.01,
+                                     damping=0.05)
 
     # we want fancy stuff to be shown, put them in a marker array
     # make the meshes slightly transparent
@@ -396,18 +457,28 @@ if __name__=='__main__':
                               mesh_rgba=(0.2, 0.8, 0.2, 1),
                               mesh_scale=(1, 1, 1))
 
+    spike_view = RosSwarmView(swarm=spikes,
+                              mesh_path=mesh_dir+'known_arrow.dae',
+                              mesh_rgba=(0.8, 0.8, 0.2, 1),
+                              mesh_scale=(1, 1, 1),
+                              last_used_id=swarm_view.last_used_id+10)
+
     # we also want to see a plane and sphere in rviz, representing the cage and obstacle
     # create views for them. Since these are stationary, we wont be updating them much
     # we just need the position of this, it wont be moving
-    sphere_body = VelocityPoint(init_pos=(0, 0, 0))
-    sphere_view = RosPoseView(body=sphere_body,
-                              topic='/sphere_cage')
-    marker_array.add_view(sphere_view, mesh_dir+'known_sphere.dae',(1,1,1),(0.2,0.2,0.8,0.2))
+    for center, radius in zip(swarm._center, swarm._radius):
+        sphere_body = VelocityPoint(init_pos=center)
+        sphere_view = RosPoseView(body=sphere_body,
+                                  topic='/sphere_cage')
+        marker_array.add_view(sphere_view, mesh_dir+'known_sphere.dae',
+                              (radius,radius,radius),
+                              (0.2,0.2,0.8,0.2))
 
     ########################################################################################
     # PLANES
     ########################################################################################
     planes = [ (0,0,0.8), (0,0,-0.8), (1,1,0.6)]#, (1.2, 1.2, -0.6)]
+    #  planes = []
     plane_views = []
     plane_bodies = []
     for plane in planes:
@@ -420,6 +491,7 @@ if __name__=='__main__':
 
         # add the plane obstacle to the swarm
         swarm.add_planar_obstacle((plane_pos, plane_normal))
+        spikes.add_planar_obstacle((plane_pos, plane_normal))
 
         # these points use the velocty for orientation
         plane_body = VelocityPoint(init_pos=plane_pos,
@@ -482,12 +554,26 @@ if __name__=='__main__':
             dt = dt_steps[current_dt_step]
 
             t0 = time.time()
+
+            # update the swarm
             sphere_forces = swarm.calc_sphere_forces(dt)
             point_forces = swarm.calc_point_forces(dt)
             point_forces *= 0.05
             forces = sphere_forces+point_forces
             forces = swarm.handle_obstacle_forces(dt, forces)
             swarm.update(dt, forces=forces)
+
+            # same for the spikes
+            # but also update the centers of the spikes so that they
+            # follow the swarm
+            spikes.change_centers(swarm._pos)
+            s_sphere_forces = spikes.calc_sphere_forces(dt)
+            s_point_forces = spikes.calc_point_forces(dt)
+            s_point_forces *= 0.05
+            s_forces = s_sphere_forces + s_point_forces
+            s_forces = spikes.handle_obstacle_forces(dt, s_forces)
+            spikes.update(dt, forces=s_forces)
+
             tick_times.append(time.time()-t0)
 
             # record for later
@@ -501,10 +587,11 @@ if __name__=='__main__':
 
         # finally show the state of the swarm
         swarm_view.update()
+        spike_view.update()
         rate.sleep()
 
         # stop if agents converged
-        if not swarm._any_alive():
+        if not swarm._any_alive() and not spikes._any_alive():
             print('All dead. Avg ticks per second:', 1/np.average(tick_times))
             print('Ticks:',len(applied_forces))
             break
@@ -515,6 +602,7 @@ if __name__=='__main__':
     # send the final locations to rviz
     for i in range(50):
         swarm_view.update()
+        spike_view.update()
         rate2.sleep()
 
     # no need to profile plotting
@@ -567,7 +655,6 @@ if __name__=='__main__':
 
     fig, ax = P.make_3d_fig()
     P.scatter3(ax, swarm._pos)
-    P.scatter3(ax, plane_pos, color='r')
     P.scatter3(ax, np.array((0,0,0)), color='g')
 
     every=200
@@ -597,6 +684,7 @@ if __name__=='__main__':
         for j in range(nv):
             xyz = G.uvr_to_xyz((uu[i,j],vv[i,j],1))
             # project point to the planes to see if it is 'outside' any
+            distance = None
             for A,n in swarm.planar_obstacles:
                 projection, distance = G.project_point_to_plane(xyz, A, n)
                 if distance < 0:
@@ -607,7 +695,7 @@ if __name__=='__main__':
             sp_uvs.append(G.xyz_to_uvr(xyz))
 
             # color the planes differently
-            if distance<0:
+            if distance is not None and distance<0:
                 colors.append(0.5)
                 sp_colors.append(0.5)
                 continue
