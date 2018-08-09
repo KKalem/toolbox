@@ -401,20 +401,19 @@ if __name__=='__main__':
     import rospy
 
     # N, num of agents
-    N = 12
+    N = 10
     # dt, time step per sim tick
     # during run, the simulation will change between these when needed
-    #  dt_steps = [0.005, 0.01, 0.05]
-    dt_steps = [0.005, 0.005, 0.005]
+    dt_steps = [0.005, 0.01, 0.05]
     current_dt_step = 0
     # ups, updates per second for ros stuff to update
     ups = 60
     # ticker per view, how many sim ticks to run per view update
-    ticks_per_view = 20
+    ticks_per_view = 10
 
     # set to false when not running a profiler
     # this changes the ros init_node disable signal and plotting stuff
-    profiling = True
+    profiling = False
 
     # init the usual ros stuff
     rospy.init_node('rosviewtest', anonymous=True, disable_signals=profiling)
@@ -477,7 +476,7 @@ if __name__=='__main__':
     ########################################################################################
     # PLANES
     ########################################################################################
-    planes = [ (0,0,0.8), (0,0,-0.8), (1,1,0.6)]#, (1.2, 1.2, -0.6)]
+    planes = [ (0,0,0.8), (0,0,-0.8), (2,1,0.6)]#, (1.2, 1.2, -0.6)]
     #  planes = []
     plane_views = []
     plane_bodies = []
@@ -525,6 +524,7 @@ if __name__=='__main__':
     velocities = []
     edges = []
     applied_forces = []
+    spike_applied_forces = []
     sphere_forces_over_time = []
     point_forces_over_time = []
 
@@ -541,8 +541,9 @@ if __name__=='__main__':
             # used to dynamically change the time step for every sim tick
             # to speed up those final ever-so-slightly-still-moving moments
             # all values eye-balled
-            if len(applied_forces) > 0:
-                last_max_force = np.max(np.abs(applied_forces[-1]))
+            if len(applied_forces) > 0 and len(spike_applied_forces) > 0:
+                last_max_force = max( np.max(np.abs(applied_forces[-1])),
+                                      np.max(np.abs(spike_applied_forces[-1])))
                 if last_max_force > 0.01:
                     current_dt_step = 0
                 elif last_max_force <= 0.01:
@@ -584,6 +585,8 @@ if __name__=='__main__':
             sphere_forces_over_time.append(sphere_forces)
             point_forces_over_time.append(point_forces)
             velocities.append(np.copy(swarm._vel))
+
+            spike_applied_forces.append(s_forces)
 
         # finally show the state of the swarm
         swarm_view.update()
