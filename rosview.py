@@ -171,8 +171,8 @@ class RosSwarmView:
 
 
     def update(self):
-        for pos,quat,marker in zip(self.swarm.get_positions(),
-                                   self.swarm.get_orientation_quats(),
+        for pos,quat,marker in zip(self.swarm.get_position(),
+                                   self.swarm.get_orientation_quat(),
                                    self.marker_array.markers):
 
             marker.pose.position.x = pos[0]

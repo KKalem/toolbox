@@ -8,32 +8,9 @@
 from __future__ import print_function
 import math
 import numpy as np
+from scipy.spatial import Delaunay
 
-#############################################################
-# QUATERNIONS
-#############################################################
-
-#  def quaternion_to_yaw(quat):
-    #  """
-    #  returns the yaw angle from a given quaternion in radians.
-    #  quat = (x,y,z,w)
-    #  """
-    #  x,y,z,w = quat
-    #  return math.atan2(2. * (x*y + w*z),
-                      #  w**2 + z**2 - y**2 - z**2)
-    #quaternion_to_yaw
-    #  yaw = quaternion_to_yaw([0,0,0,1])
-    #  assert(yaw==0)
-    #  yaw = quaternion_to_yaw([0,1,0,0])
-    #  assert(yaw==np.pi)
-    #  yaw = quaternion_to_yaw([0,0.707,0,0.707])
-    #  print(yaw)
-    #  assert(yaw==np.pi/2)
-
-# the above tests fail, they should not. This function is bad
-#############################################################
-
-
+RADTODEG = 360 / (np.pi * 2)
 
 ##############################################################
 #  VECTOR STUFF
@@ -474,6 +451,43 @@ def project_point_to_plane(P, A, n):
         return projected[0], dist
 
     return projected, dist
+
+
+def create_cage(pts):
+    """
+    given a list of (N,3) points, returns the edges of the convex hull
+    """
+    # triangulate the points and generate a convex hull out of it
+    # for well-formed spherical-formations, this convex hull is convex and approximates
+    # the sphere.
+    pts = np.array(pts)
+    try:
+        tris = Delaunay(pts)
+    except:
+        # if can't triangulate, the vertices must be degenerate, so no cage.
+        return None
+    # hull is made of triangle edges in terms of indices for self._pos
+    hull = tris.convex_hull
+
+    edges = {}
+    for triangle in hull:
+        # for each triangle, we want to know the edge lengths
+        # make the triangle a loop by adding the first vertex at the end
+        poly = list(triangle) + [triangle[0]]
+        for i in range(1, len(poly)):
+            i1 = poly[i-1]
+            i2 = poly[i]
+            v1 = pts[i1]
+            v2 = pts[i2]
+            # i only want unique edges, dont give me '0:2 and 2:0' BS.
+            if i1 > i2:
+                edge_key = str(i1)+':'+str(i2)
+            else:
+                edge_key = str(i2)+':'+str(i1)
+            edges[edge_key] = (v1,v2)
+
+    return np.array(list(edges.values()))
+
 
 
 ########################################################################
