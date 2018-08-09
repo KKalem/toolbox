@@ -115,11 +115,12 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
 
     def calc_point_forces(self, dt):
         tangent_forces = np.zeros_like(self._pos)
+        _, normals = G.vec_normalize(self._pos - self._center)
 
         for i,this in enumerate(self._pos):
             # this is the normal vector on the sphere, we want the forces to be 0
             # on this vector so that the point does not try to move away from the sphere surface
-            _, normal_vec = G.vec_normalize(this - self._center[i])
+            normal_vec = normals[i]
             # add up all the other points' effects on this point.
             for j,other in enumerate(self._pos):
                 dist = G.euclid_distance(this, other)
@@ -131,6 +132,7 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
                 force_mag = self._charge / (dist**2)
                 _, force_vec = G.vec_normalize(this - other)
                 force_vec *= force_mag
+
                 perpendicular_vec = G.project_vec(force_vec, normal_vec)
                 tangent_vec = force_vec - perpendicular_vec
                 tangent_forces[i] += tangent_vec

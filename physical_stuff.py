@@ -99,3 +99,47 @@ def collide_planes(obj, forces, planar_obstacles, dt):
     obj.set_velocity(current_vel)
 
     return forces
+
+
+def apply_chain(head, tail, length, head_forces, tail_forces, dt):
+    """
+    head<><><><>tail
+    tail should not be able to move more than length away from head.
+
+    This is done by checking the next frame for this distance.
+    If in the next frame tail is farther than allowed, forces are modified so that it
+    will not be farther.
+
+    head and tail should have get_position, get_velocity, set_position, set_velocity.
+    get's should return same shape for both
+    both should also have update(forces, dt)
+    same stuff as plane collisions really
+    """
+
+    current_head_pos = head.get_position()
+    current_head_vel = head.get_velocity()
+
+    current_tail_pos = tail.get_position()
+    current_tail_vel = tail.get_velocity()
+
+    head.update(head_forces, dt)
+    tail.update(tail_forces, dt)
+
+    future_head_pos = head.get_position()
+    future_tail_pos = tail.get_position()
+
+    future_distances = G.euclid_distance(future_tail_pos, future_head_pos)
+    # a mask of points where in the future the chain will break
+    future_breaks = future_distances > length
+
+    # T = tail pos
+    # H = head pos
+    # primes = future pos's
+    # f = the force needed to keep the chain
+    # f = (H'-H) - (T-H) + normalize(T'-H')*l
+    chain_forces = (future_head_pos - current_head_pos) -\
+                   (current_tail_pos - current_head_pos) +\
+                   G.vec_normalize(future_tail_pos-future_head_pos)[1]*length
+    # only apply to those that will break in the future, not the ones that will stay inside
+    chain_forces *= future_breaks
+    return chain_forces

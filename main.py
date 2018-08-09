@@ -184,6 +184,7 @@ if __name__=='__main__':
             spikes.set_center(swarm._pos)
             s_forces = spikes.get_acting_forces(dt)
             s_forces = phys.collide_planes(spikes, s_forces, planes, dt)
+            s_forces = phys.apply_chain(swarm, spikes, spikes._radius, forces, s_forces, dt)
             spikes.update(dt, forces=s_forces)
 
             tick_times.append(time.time()-t0)
