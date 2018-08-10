@@ -74,9 +74,8 @@ class DynamicPointSwarm:
 
         if forces is None:
             forces = np.zeros_like(self._pos)
-        else:
-            if forces.shape != self._vel.shape:
-                raise Exception('Force shape not the same as velocities! '+str(forces.shape))
+        assert forces.shape == self._vel.shape,\
+               'Force shape not the same as velocities! '+str(forces.shape)
 
         # prevent sun visits
         np.clip(forces, -10, 10, out=forces)

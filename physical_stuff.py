@@ -116,14 +116,16 @@ def apply_chain(head, tail, length, head_forces, tail_forces, dt):
     same stuff as plane collisions really
     """
 
+    DOES NOT WERK, TRY THE THING LUIS SUGGESTED
+
     current_head_pos = head.get_position()
     current_head_vel = head.get_velocity()
 
     current_tail_pos = tail.get_position()
     current_tail_vel = tail.get_velocity()
 
-    head.update(head_forces, dt)
-    tail.update(tail_forces, dt)
+    head.update(dt, forces=head_forces)
+    tail.update(dt, forces=tail_forces)
 
     future_head_pos = head.get_position()
     future_tail_pos = tail.get_position()
@@ -137,9 +139,30 @@ def apply_chain(head, tail, length, head_forces, tail_forces, dt):
     # primes = future pos's
     # f = the force needed to keep the chain
     # f = (H'-H) - (T-H) + normalize(T'-H')*l
+    # V = normalize(T'-H')*l
+    # 0th return is the norms, we dont care about that
+    V = G.vec_normalize(future_tail_pos-future_head_pos)[1]
+    # this creates a (1,N) matrix
+    length = np.atleast_2d(length)
+    # broadcasted into (N,3) when multiplied
+    # need to transpose length to that it becomes (N,1) instead
+    V *= length.T
     chain_forces = (future_head_pos - current_head_pos) -\
                    (current_tail_pos - current_head_pos) +\
-                   G.vec_normalize(future_tail_pos-future_head_pos)[1]*length
+                   V
     # only apply to those that will break in the future, not the ones that will stay inside
-    chain_forces *= future_breaks
-    return chain_forces
+    future_breaks = np.atleast_2d(future_breaks)
+    chain_forces *= future_breaks.T
+    print('chain:\n',chain_forces)
+    # we SET the chain forces to 0 for the ones that dont violate length
+    # so we need to add them back
+    # the 'not future break * forces' gives us the 'completing' forces
+    future_breaks = np.atleast_2d(future_breaks)
+    net_forces = chain_forces + tail_forces * future_breaks.T
+
+    # undo the updates
+    head.set_position(current_head_pos)
+    head.set_velocity(current_head_vel)
+    tail.set_position(current_tail_pos)
+    tail.set_velocity(current_tail_vel)
+    return net_forces
