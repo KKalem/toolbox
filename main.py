@@ -21,12 +21,41 @@ from dynamic_point import VelocityPoint
 from dynamic_point_sphere_swarm import DynamicPointSphereSwarm
 import plotting as P
 import physical_stuff as phys
+from Quaternion import Quat
+
+
+class ConeSwarm:
+    def __init__(self, agent_swarm, look_swarm):
+        """
+        a simple swarm that uses two other swarms for its data
+        """
+
+        self.agent_swarm = agent_swarm
+        self.look_swarm = look_swarm
+
+    def get_position(self):
+        return self.agent_swarm.get_position()
+
+    def get_orientation_quat(self):
+        look_vectors = self.look_swarm.get_positions() - self.agent_swarm.get_positions()
+        quats = []
+        for vel in look_vectors:
+            yaw,pitch = G.vec3_to_yaw_pitch(vel)
+            roll = 0
+
+            yaw*= G.RADTODEG
+            pitch*= G.RADTODEG
+            quats.append(Quat([yaw,pitch,roll]).q)
+
+        return quats
+
+
 
 if __name__=='__main__':
     ########################################################################################
 
     # N, num of agents
-    N = 12
+    N = 40
     # dt, time step per sim tick
     # during run, the simulation will change between these when needed
     dt_steps = [0.005, 0.01, 0.05]
@@ -34,7 +63,7 @@ if __name__=='__main__':
     # ups, updates per second for ros stuff to update
     ups = 60
     # ticker per view, how many sim ticks to run per view update
-    ticks_per_view = 10
+    ticks_per_view = 1
 
     # set to false when not running a profiler
     # this changes the ros init_node disable signal and plotting stuff
@@ -61,7 +90,7 @@ if __name__=='__main__':
                                      center=init_pos,
                                      radius=[0.4]*N,
                                      mass=0.01,
-                                     damping=0.05)
+                                     damping=0.25)
 
     # we want fancy stuff to be shown, put them in a marker array
     # make the meshes slightly transparent
@@ -88,13 +117,15 @@ if __name__=='__main__':
     # we also want to see a plane and sphere in rviz, representing the cage and obstacle
     # create views for them. Since these are stationary, we wont be updating them much
     # we just need the position of this, it wont be moving
-    for center, radius in zip(swarm._center, swarm._radius):
-        sphere_body = VelocityPoint(init_pos=center)
-        sphere_view = RosPoseView(body=sphere_body,
-                                  topic='/sphere_cage')
-        marker_array.add_view(sphere_view, mesh_dir+'known_sphere.dae',
-                              (radius,radius,radius),
-                              (0.2,0.2,0.8,0.2))
+    #  for center, radius in zip(swarm._center, swarm._radius):
+    center = swarm._center[0]
+    radius = swarm._radius[0]
+    sphere_body = VelocityPoint(init_pos=center)
+    sphere_view = RosPoseView(body=sphere_body,
+                              topic='/sphere_cage')
+    marker_array.add_view(sphere_view, mesh_dir+'known_sphere.dae',
+                          (radius,radius,radius),
+                          (0.2,0.2,0.8,0.2))
 
     ########################################################################################
     # PLANES
@@ -175,7 +206,7 @@ if __name__=='__main__':
 
             # update the swarm
             forces = swarm.get_acting_forces(dt)
-            forces = phys.collide_planes(swarm, forces, planes, dt)
+            #  forces = phys.collide_planes(swarm, forces, planes, dt)
             swarm.update(dt, forces=forces)
 
             # same for the spikes
@@ -190,6 +221,7 @@ if __name__=='__main__':
                                         head_forces = forces,
                                         tail_forces = s_forces,
                                         dt = dt)
+
             spikes.update(dt, forces=s_forces)
 
             tick_times.append(time.time()-t0)

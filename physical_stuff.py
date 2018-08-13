@@ -83,7 +83,7 @@ def collide_planes(obj, forces, planar_obstacles, dt):
 
         # hacky, gives planes immense power to push out stuff
         # works though.
-        pushing_f *= 500
+        pushing_f *= 100
 
 
         # penetrative_f and pushing_f should have mutually exclusive non-zero elements
@@ -116,8 +116,6 @@ def apply_chain(head, tail, length, head_forces, tail_forces, dt):
     same stuff as plane collisions really
     """
 
-    DOES NOT WERK, TRY THE THING LUIS SUGGESTED
-
     current_head_pos = head.get_position()
     current_head_vel = head.get_velocity()
 
@@ -133,36 +131,21 @@ def apply_chain(head, tail, length, head_forces, tail_forces, dt):
     future_distances = G.euclid_distance(future_tail_pos, future_head_pos)
     # a mask of points where in the future the chain will break
     future_breaks = future_distances > length
+    # to make it from a (N,) to (N,1) so we can do broadcasting stuff later
+    future_breaks = np.transpose(np.atleast_2d(future_breaks))
 
-    # T = tail pos
-    # H = head pos
-    # primes = future pos's
-    # f = the force needed to keep the chain
-    # f = (H'-H) - (T-H) + normalize(T'-H')*l
-    # V = normalize(T'-H')*l
-    # 0th return is the norms, we dont care about that
-    V = G.vec_normalize(future_tail_pos-future_head_pos)[1]
-    # this creates a (1,N) matrix
-    length = np.atleast_2d(length)
-    # broadcasted into (N,3) when multiplied
-    # need to transpose length to that it becomes (N,1) instead
-    V *= length.T
-    chain_forces = (future_head_pos - current_head_pos) -\
-                   (current_tail_pos - current_head_pos) +\
-                   V
-    # only apply to those that will break in the future, not the ones that will stay inside
-    future_breaks = np.atleast_2d(future_breaks)
-    chain_forces *= future_breaks.T
-    print('chain:\n',chain_forces)
-    # we SET the chain forces to 0 for the ones that dont violate length
-    # so we need to add them back
-    # the 'not future break * forces' gives us the 'completing' forces
-    future_breaks = np.atleast_2d(future_breaks)
-    net_forces = chain_forces + tail_forces * future_breaks.T
+    # vector from tail to head is the 'chain'
+    current_chains = current_head_pos - current_tail_pos
+    # project the force on tail on the 'chain'
+    chain_pulls = [G.project_vec(tail_forces[i], current_chains[i]) for i in range(len(tail_forces)) ]
+    chain_pulls = np.array(chain_pulls)*future_breaks
+    # subtract these pulls from the acting forces on the tail
+    non_pulling_forces = tail_forces - chain_pulls
 
     # undo the updates
     head.set_position(current_head_pos)
     head.set_velocity(current_head_vel)
     tail.set_position(current_tail_pos)
     tail.set_velocity(current_tail_vel)
-    return net_forces
+
+    return non_pulling_forces
