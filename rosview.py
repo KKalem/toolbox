@@ -136,7 +136,7 @@ class RosSwarmView:
         self.marker_array = MarkerArray()
 
         self.poses = []
-        for i in range(len(swarm._pos)):
+        for i in range(len(swarm.get_position())):
             point = Point()
             quat = Quaternion()
             pose = Pose()

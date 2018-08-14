@@ -6,6 +6,7 @@
 # Date: 2018-07-26
 
 
+import pickle
 import numpy as np
 import time
 import sys
@@ -36,8 +37,13 @@ class ConeSwarm:
     def get_position(self):
         return self.agent_swarm.get_position()
 
+    def get_look_vectors(self):
+        look_vectors = self.look_swarm.get_position() - self.agent_swarm.get_position()
+        #  look_vectors = self.look_swarm._center - self.agent_swarm.get_position()
+        return look_vectors
+
     def get_orientation_quat(self):
-        look_vectors = self.look_swarm.get_positions() - self.agent_swarm.get_positions()
+        look_vectors = self.get_look_vectors()
         quats = []
         for vel in look_vectors:
             yaw,pitch = G.vec3_to_yaw_pitch(vel)
@@ -55,7 +61,10 @@ if __name__=='__main__':
     ########################################################################################
 
     # N, num of agents
-    N = 40
+    # 4,6,12
+    N = 6
+    # where the planar obstacles are in u-v-r coords
+    plane_uvrs = [ (0,0,0.8), (0,0,-0.8)]#, (2,1,0.6)]#, (1.2, 1.2, -0.6)]
     # dt, time step per sim tick
     # during run, the simulation will change between these when needed
     dt_steps = [0.005, 0.01, 0.05]
@@ -63,11 +72,12 @@ if __name__=='__main__':
     # ups, updates per second for ros stuff to update
     ups = 60
     # ticker per view, how many sim ticks to run per view update
-    ticks_per_view = 1
+    ticks_per_view = 5
 
     # set to false when not running a profiler
-    # this changes the ros init_node disable signal and plotting stuff
+    # this changes the ros init_node disable signal and plotting stuff and saving stuff
     profiling = True
+    use_cones = True
 
     # init the usual ros stuff
     rospy.init_node('rosviewtest', anonymous=True, disable_signals=profiling)
@@ -88,9 +98,12 @@ if __name__=='__main__':
     spike_init_pos = (np.random.random((N,3))*2)-1
     spikes = DynamicPointSphereSwarm(init_pos=spike_init_pos,
                                      center=init_pos,
-                                     radius=[0.4]*N,
+                                     radius=[0.15]*N,
                                      mass=0.01,
-                                     damping=0.25)
+                                     damping=0.05)
+
+    cones = ConeSwarm(agent_swarm = spikes,
+                      look_swarm = swarm)
 
     # we want fancy stuff to be shown, put them in a marker array
     # make the meshes slightly transparent
@@ -114,6 +127,13 @@ if __name__=='__main__':
                               mesh_scale=(1, 1, 1),
                               last_used_id=swarm_view.last_used_id+10)
 
+    cone_view = RosSwarmView(swarm=cones,
+                              mesh_path=mesh_dir+'known_cone.dae',
+                              mesh_rgba=(0.5, 0.4, 0.7, 0.4),
+                              mesh_scale=(1, 1, 1),
+                              last_used_id=spike_view.last_used_id+10)
+
+
     # we also want to see a plane and sphere in rviz, representing the cage and obstacle
     # create views for them. Since these are stationary, we wont be updating them much
     # we just need the position of this, it wont be moving
@@ -125,13 +145,12 @@ if __name__=='__main__':
                               topic='/sphere_cage')
     marker_array.add_view(sphere_view, mesh_dir+'known_sphere.dae',
                           (radius,radius,radius),
-                          (0.2,0.2,0.8,0.2))
+                          (1.0,0.3,0.3,0.4))
 
     ########################################################################################
     # PLANES
     ########################################################################################
     # points on planes
-    plane_uvrs = [ (0,0,0.8), (0,0,-0.8), (2,1,0.6)]#, (1.2, 1.2, -0.6)]
     plane_views = []
     plane_bodies = []
     planes = []
@@ -169,14 +188,14 @@ if __name__=='__main__':
         marker_array.update()
         rate2.sleep()
 
-    # to be plotted later
-    sphere_err = []
-    traces = []
-    edges = []
+    # to be saved later
+    cage_edges = []
+
+
     applied_forces = []
     spike_applied_forces = []
-
     tick_times = []
+    elapsed_time = []
 
     ########################################################################################
     # MAIN LOOP
@@ -206,37 +225,35 @@ if __name__=='__main__':
 
             # update the swarm
             forces = swarm.get_acting_forces(dt)
-            #  forces = phys.collide_planes(swarm, forces, planes, dt)
+            forces = phys.collide_planes(swarm, forces, planes, dt)
             swarm.update(dt, forces=forces)
-
-            # same for the spikes
-            # but also update the centers of the spikes so that they
-            # follow the swarm
-            spikes.set_center(swarm._pos)
-            s_forces = spikes.get_acting_forces(dt)
-            s_forces = phys.collide_planes(spikes, s_forces, planes, dt)
-            s_forces = phys.apply_chain(head = swarm,
-                                        tail = spikes,
-                                        length = spikes._radius,
-                                        head_forces = forces,
-                                        tail_forces = s_forces,
-                                        dt = dt)
-
-            spikes.update(dt, forces=s_forces)
-
-            tick_times.append(time.time()-t0)
-
             # record for later
-            edges.append(G.create_cage(swarm._pos))
-            traces.append(np.copy(swarm._pos))
-            sphere_err.append(swarm.check_sphere())
+            cage_edges.append(G.create_cage(swarm._pos))
             applied_forces.append(forces)
 
-            spike_applied_forces.append(s_forces)
+            if use_cones:
+                # same for the spikes
+                # but also update the centers of the spikes so that they
+                # follow the swarm
+                spikes.set_center(swarm._pos)
+                s_forces = spikes.get_acting_forces(dt)
+                s_forces = phys.collide_planes(spikes, s_forces, planes, dt)
+                spikes.update(dt, forces=s_forces)
+
+                # record
+                spike_applied_forces.append(s_forces)
+
+            tick_times.append(time.time()-t0)
+            elapsed_time.append(dt)
+
+
 
         # finally show the state of the swarm
         swarm_view.update()
-        spike_view.update()
+
+        if use_cones:
+            spike_view.update()
+            cone_view.update()
         rate.sleep()
 
         # stop if agents converged
@@ -251,130 +268,38 @@ if __name__=='__main__':
     # send the final locations to rviz
     for i in range(50):
         swarm_view.update()
-        spike_view.update()
+        if use_cones:
+            spike_view.update()
+            cone_view.update()
         rate2.sleep()
 
-    # no need to profile plotting
-    if profiling:
-        sys.exit(0)
-    ########################################################################################
-    # PLOTTING
-    ########################################################################################
-    # time, agent, (x,y,z)
-    traces = np.array(traces)
-    # time, edge, [(x,y,z), (x,y,z)]
-    edges_in_time = np.array(edges)
-    # time, agent, (u,v,w)
-    applied_forces = np.array(applied_forces)
+    # elapsed time should have the 'time' of each update, not the dt
+    elapsed_time = np.cumsum(elapsed_time)
 
-    ########################################################################################
-    plt.figure()
-    plt.subplot(1,2,1)
-    plt.plot(sphere_err)
-    plt.xlabel('sim ticks')
-    plt.ylabel('sphere err')
-    plt.title('sphere error')
+    # save all the data we have
+    caging_data = {}
+    caging_data['caged_sphere'] = (swarm._center, swarm._radius)
+    caging_data['obstacle_planes'] = planes
 
-    edge_lens = []
-    for t,edges in enumerate(edges_in_time):
-        for edge in edges:
-            if edge is not None:
-                L = G.euclid_distance(edge[0], edge[1])
-                edge_lens.append((t,L))
-    edge_lens = np.array(edge_lens)
+    caging_data['sensor_positions'] = swarm.get_position()
+    caging_data['cage_edges_over_time'] = cage_edges
 
-    plt.subplot(1,2,2)
-    # edge_lens might not have the same number of edges at every time step!
-    # so we can not really make a 2d array out of it to plot
-    # we can, however, scatter what we got
-    plt.scatter(edge_lens[:,0], edge_lens[:,1], marker='.', alpha=0.3)
-    plt.axhline(1.63, linestyle='--')
-    plt.xlabel('sim ticks')
-    plt.ylabel('edge lengths of cage')
-    plt.ylim(0,3)
-    plt.title('cage edges over time')
-    ########################################################################################
+    caging_data['agent_positions'] = spikes.get_position() if use_cones else swarm.get_position()
+    caging_data['agent_orientations'] = cones.get_look_vectors() if use_cones else None
 
-    fig, ax = P.make_3d_fig()
-    P.scatter3(ax, swarm._pos)
-    P.scatter3(ax, np.array((0,0,0)), color='g')
+    caging_data['sensor_range'] = spikes._radius[0]
+    caging_data['elapsed_time'] = elapsed_time
 
-    every=200
-    for i in range(N):
-        P.plot3(ax, traces[::every][:,i,:])
-        P.arrows3(ax, traces[::every][:,i,:], applied_forces[::every][:,i,:], length=0.1, normalize=True, color='r', alpha=0.3)
+    caging_data['sensor_shape'] = 'conical' if use_cones else 'spherical'
 
-    ax.set_xlim(left=-1,right=1)
-    ax.set_ylim(bottom=-1,top=1)
-    ax.set_zlim(bottom=-1,top=1)
-    plt.title('trajectories of points')
+    # make a usable and *'able name for the file
+    cone_str = ' '+caging_data['sensor_shape']
+    run_string = 'cage '+\
+                 '['+str(N)+' '+cone_str+']'+\
+                 '['+str(len(planes))+' planes]'+\
+                 '['+time.asctime()[4:16]+']'+\
+                 '.pickle'
 
-
-
-
-    ########################################################################################
-    # plot a sphere, check each point for coverage
-    nu, nv = 100,100
-    sensor_range = 0.5
-    uu, vv = np.meshgrid(np.linspace(0,np.pi,nu), np.linspace(-np.pi, np.pi, nv))
-    colors = []
-    xyzs = []
-    sp_uvs = []
-    sp_colors = []
-    for i in range(nu):
-        for j in range(nv):
-            xyz = G.uvr_to_xyz((uu[i,j],vv[i,j],1))
-            # project point to the planes to see if it is 'outside' any
-            distance = None
-            for A,n in planes:
-                projection, distance = G.project_point_to_plane(xyz, A, n)
-                if distance < 0:
-                    xyz = projection
-                    break
-
-            xyzs.append(xyz)
-            sp_uvs.append(G.xyz_to_uvr(xyz))
-
-            # color the planes differently
-            if distance is not None and distance<0:
-                colors.append(0.5)
-                sp_colors.append(0.5)
-                continue
-
-            dist = G.euclid_distance(xyz, swarm._pos)
-            mindist = np.min(dist)
-            if mindist<sensor_range:
-                colors.append(1)
-                sp_colors.append(1)
-            else:
-                colors.append(0)
-                sp_colors.append(0)
-
-    # normalize colors to 0-1
-    colors = np.array(colors, dtype='float64')
-    maxdist = np.max(colors)
-    colors /= maxdist
-
-    fig, ax = P.make_3d_fig()
-    fig.subplots_adjust(top=0.95, bottom=0.01, left=0.01, right=0.99)
-    ax.set_xlim(left=-1,right=1)
-    ax.set_ylim(bottom=-1,top=1)
-    ax.set_zlim(bottom=-1,top=1)
-    # move the agents a little outside the sphere so we can see them
-    pts = G.xyz_to_uvr(swarm._pos)
-    pts[:,2] += 0.05
-    pts = G.uvr_to_xyz(pts)
-    P.scatter3(ax, pts, c='r')
-    c = P.surface_tri(ax, xyzs, uu, vv, colors, cmap='seismic', linewidth=0, alpha=0.7)
-
-    #############################################
-    # spherical coords plot
-    #############################################
-    sp_colors = np.array(sp_colors)
-    sp_uvs = np.array(sp_uvs)[:,:2]
-    plt.figure()
-    plt.scatter(sp_uvs[:,0], sp_uvs[:,1], c=sp_colors)
-    plt.title('uv-coords version')
-
-
-
+    if not profiling:
+        with open(run_string, 'wb') as fout:
+            pickle.dump(caging_data, fout)

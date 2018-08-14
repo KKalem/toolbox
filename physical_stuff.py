@@ -115,6 +115,7 @@ def apply_chain(head, tail, length, head_forces, tail_forces, dt):
     both should also have update(forces, dt)
     same stuff as plane collisions really
     """
+    print('THIS IS AN UNTESTED FUNCTION!!!!')
 
     current_head_pos = head.get_position()
     current_head_vel = head.get_velocity()
