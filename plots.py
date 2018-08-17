@@ -5,6 +5,7 @@
 # Author: Ozer Ozkahraman (ozkahramanozer@gmail.com)
 # Date: 2018-08-14
 
+import pickle
 import numpy as np
 import time
 import sys
@@ -22,26 +23,44 @@ import plotting as P
 import physical_stuff as phys
 from Quaternion import Quat
 
-if __name__ == '__main__':
-    ########################################################################################
-    # PLOTTING
-    ########################################################################################
-    sensor_range = 1 if use_cones else 0.5
-    sensor_pos = spikes._pos if use_cones else swarm._pos
+cages = [
+'cage [12 conical][2 planes][Aug 15 15:54].pickle',
+'cage [4 spherical][2 planes][Aug 15 12:04].pickle',
+'cage [6 conical][2 planes][Aug 15 15:46].pickle',
+'cage [6 spherical][2 planes][Aug 15 15:46].pickle',
+'cage [8 conical][2 planes][Aug 15 15:53].pickle',
+'cage [100 conical][2 planes][Aug 16 15:33].pickle',
+'cage [4 spherical][2 planes][Aug 17 15:36].pickle',
+'cage [12 spherical][2 planes][Aug 17 15:47].pickle'
+]
 
-    # time, agent, (x,y,z)
-    traces = np.array(traces)
-    # time, edge, [(x,y,z), (x,y,z)]
-    edges_in_time = np.array(edges)
-    # time, agent, (u,v,w)
-    applied_forces = np.array(applied_forces)
-    # dts
-    elapsed_time = np.cumsum(elapsed_time)
+if __name__ == '__main__':
+    # load a saved cage spec
+    cage_file = cages[-1]
+    with open(cage_file, 'rb') as fin:
+        caging_data = pickle.load(fin)
+
+    # xyz, r
+    sphere_center, sphere_rad = caging_data['caged_sphere']
+    # [ (A,n) ...]
+    planes = caging_data['obstacle_planes']
+    # [ xyz ... ]
+    pos = caging_data['sensor_positions']
+    # [ (K, 2, 3) ... ]. cant be an array, K is variable over the list
+    edges_over_time = caging_data['cage_edges_over_time']
+    # [ xyz ... ]
+    ori = caging_data['agent_orientations']
+    # r
+    sensor_range = caging_data['sensor_range']
+    # [0, 1, 2 ...] cumsum'd
+    elapsed_time = caging_data['elapsed_time']
+    # 'conical' or 'spherical'
+    sensor_shape = caging_data['sensor_shape']
 
     ########################################################################################
     # plot the edge lengths over time
     edge_lens = []
-    for t,edges in zip(elapsed_tim, edges_in_time):
+    for t,edges in zip(elapsed_time, edges_over_time):
         for edge in edges:
             if edge is not None:
                 L = G.euclid_distance(edge[0], edge[1])
@@ -62,9 +81,12 @@ if __name__ == '__main__':
     ########################################################################################
     # plot the cage
     fig, ax = P.make_3d_fig()
-    P.scatter3(ax, swarm._pos)
-    P.scatter3(ax, np.array((0,0,0)), color='g')
-
+    fig.set_tight_layout(tight=True)
+    ax.grid(False)
+    P.scatter3(ax, pos, color='g', marker='*', s=220)
+    final_cage = edges_over_time[-1]
+    for edge in final_cage:
+        ax.plot(edge[:,0], edge[:,1], edge[:,2], color='b')
 
     ax.set_xlim(left=-1,right=1)
     ax.set_ylim(bottom=-1,top=1)
@@ -72,11 +94,9 @@ if __name__ == '__main__':
     plt.title('')
 
 
-
-
     ########################################################################################
     # plot a sphere, check each point for coverage
-    nu, nv = 100,100
+    nu, nv = 20,20
 
     uu, vv = np.meshgrid(np.linspace(0,np.pi,nu), np.linspace(-np.pi, np.pi, nv))
     colors = []
@@ -103,9 +123,9 @@ if __name__ == '__main__':
                 sp_colors.append(0.5)
                 continue
 
-            dist = G.euclid_distance(xyz, sensor_pos)
+            dist = G.euclid_distance(xyz, pos)
             mindist = np.min(dist)
-            if mindist<sensor_range:
+            if mindist < sensor_range:
                 colors.append(1)
                 sp_colors.append(1)
             else:
@@ -117,26 +137,13 @@ if __name__ == '__main__':
     maxdist = np.max(colors)
     colors /= maxdist
 
-    fig, ax = P.make_3d_fig()
-    fig.subplots_adjust(top=0.95, bottom=0.01, left=0.01, right=0.99)
+    #  fig, ax = P.make_3d_fig()
+    #  fig.subplots_adjust(top=0.95, bottom=0.01, left=0.01, right=0.99)
+    c = P.surface_tri(ax, xyzs, uu, vv, colors, cmap='seismic', linewidth=0, alpha=0.7)
+
     ax.set_xlim(left=-1,right=1)
     ax.set_ylim(bottom=-1,top=1)
     ax.set_zlim(bottom=-1,top=1)
-    # move the agents a little outside the sphere so we can see them
-    pts = G.xyz_to_uvr(swarm._pos)
-    pts[:,2] += 0.05
-    pts = G.uvr_to_xyz(pts)
-    P.scatter3(ax, pts, c='r')
-    c = P.surface_tri(ax, xyzs, uu, vv, colors, cmap='seismic', linewidth=0, alpha=0.7)
-
-    #############################################
-    # spherical coords plot
-    #############################################
-    sp_colors = np.array(sp_colors)
-    sp_uvs = np.array(sp_uvs)[:,:2]
-    plt.figure()
-    plt.scatter(sp_uvs[:,0], sp_uvs[:,1], c=sp_colors)
-    plt.title('uv-coords version')
 
 
 

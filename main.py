@@ -25,46 +25,15 @@ import physical_stuff as phys
 from Quaternion import Quat
 
 
-class ConeSwarm:
-    def __init__(self, agent_swarm, look_swarm):
-        """
-        a simple swarm that uses two other swarms for its data
-        """
-
-        self.agent_swarm = agent_swarm
-        self.look_swarm = look_swarm
-
-    def get_position(self):
-        return self.agent_swarm.get_position()
-
-    def get_look_vectors(self):
-        look_vectors = self.look_swarm.get_position() - self.agent_swarm.get_position()
-        #  look_vectors = self.look_swarm._center - self.agent_swarm.get_position()
-        return look_vectors
-
-    def get_orientation_quat(self):
-        look_vectors = self.get_look_vectors()
-        quats = []
-        for vel in look_vectors:
-            yaw,pitch = G.vec3_to_yaw_pitch(vel)
-            roll = 0
-
-            yaw*= G.RADTODEG
-            pitch*= G.RADTODEG
-            quats.append(Quat([yaw,pitch,roll]).q)
-
-        return quats
-
-
-
 if __name__=='__main__':
     ########################################################################################
 
     # N, num of agents
     # 4,6,12
-    N = 6
+    N = 12
     # where the planar obstacles are in u-v-r coords
-    plane_uvrs = [ (0,0,0.8), (0,0,-0.8)]#, (2,1,0.6)]#, (1.2, 1.2, -0.6)]
+    plane_uvrs = [ (0,0,0.4), (0,0,-0.4)]#, (2,1,0.6), (1.2, 1.2, -0.6), (0.2, 2.3, 0.5)]
+    # how much 'offset' there will be from the unit-sphere
     # dt, time step per sim tick
     # during run, the simulation will change between these when needed
     dt_steps = [0.005, 0.01, 0.05]
@@ -76,8 +45,11 @@ if __name__=='__main__':
 
     # set to false when not running a profiler
     # this changes the ros init_node disable signal and plotting stuff and saving stuff
-    profiling = True
-    use_cones = True
+    profiling = False
+    # conical sensors or spherical sensors
+    use_cones = False
+    # this is basically defines the opening angle of the cones
+    sphere_offset = 0.15 if use_cones else 0.0
 
     # init the usual ros stuff
     rospy.init_node('rosviewtest', anonymous=True, disable_signals=profiling)
@@ -87,23 +59,13 @@ if __name__=='__main__':
     # create the swarm with random starting positions
     init_pos = (np.random.random((N,3))*2)-1
     centers = [0,0,0]
-    radii = 1
+    radii = 1+sphere_offset
     # with some small mass and damping
     swarm = DynamicPointSphereSwarm(init_pos=init_pos,
                                     center=centers,
                                     radius=radii,
                                     mass=0.01,
                                     damping=0.05)
-
-    spike_init_pos = (np.random.random((N,3))*2)-1
-    spikes = DynamicPointSphereSwarm(init_pos=spike_init_pos,
-                                     center=init_pos,
-                                     radius=[0.15]*N,
-                                     mass=0.01,
-                                     damping=0.05)
-
-    cones = ConeSwarm(agent_swarm = spikes,
-                      look_swarm = swarm)
 
     # we want fancy stuff to be shown, put them in a marker array
     # make the meshes slightly transparent
@@ -116,22 +78,13 @@ if __name__=='__main__':
     # SWARM INIT
     ########################################################################################
     # create the swarm view so we can see stuff in rviz
+    mesh = 'known_cone.dae' if use_cones else 'known_arrow.dae'
+    mesh_alpha = 0.3 if use_cones else 1.0
     swarm_view = RosSwarmView(swarm=swarm,
-                              mesh_path=mesh_dir+'known_arrow.dae',
-                              mesh_rgba=(0.2, 0.8, 0.2, 1),
+                              mesh_path=mesh_dir+mesh,
+                              mesh_rgba=(0.2, 0.8, 0.2, mesh_alpha),
                               mesh_scale=(1, 1, 1))
 
-    spike_view = RosSwarmView(swarm=spikes,
-                              mesh_path=mesh_dir+'known_arrow.dae',
-                              mesh_rgba=(0.8, 0.8, 0.2, 1),
-                              mesh_scale=(1, 1, 1),
-                              last_used_id=swarm_view.last_used_id+10)
-
-    cone_view = RosSwarmView(swarm=cones,
-                              mesh_path=mesh_dir+'known_cone.dae',
-                              mesh_rgba=(0.5, 0.4, 0.7, 0.4),
-                              mesh_scale=(1, 1, 1),
-                              last_used_id=spike_view.last_used_id+10)
 
 
     # we also want to see a plane and sphere in rviz, representing the cage and obstacle
@@ -145,7 +98,16 @@ if __name__=='__main__':
                               topic='/sphere_cage')
     marker_array.add_view(sphere_view, mesh_dir+'known_sphere.dae',
                           (radius,radius,radius),
-                          (1.0,0.3,0.3,0.4))
+                          (0.2, 0.2, 0.2, 0.1))
+
+    # and a unit sphere as the cage
+    radius = swarm._radius[0]-sphere_offset
+    unit_sphere_body = VelocityPoint(init_pos=center)
+    unit_sphere_view = RosPoseView(body=unit_sphere_body,
+                                   topic='/unit_sphere_cage')
+    marker_array.add_view(unit_sphere_view, mesh_dir+'known_sphere.dae',
+                          (radius,radius,radius),
+                          (1.0, 0.2, 0.2, 0.7))
 
     ########################################################################################
     # PLANES
@@ -185,6 +147,7 @@ if __name__=='__main__':
         for plane_view in plane_views:
             plane_view.update()
         sphere_view.update()
+        unit_sphere_view.update()
         marker_array.update()
         rate2.sleep()
 
@@ -193,7 +156,6 @@ if __name__=='__main__':
 
 
     applied_forces = []
-    spike_applied_forces = []
     tick_times = []
     elapsed_time = []
 
@@ -208,9 +170,8 @@ if __name__=='__main__':
             # used to dynamically change the time step for every sim tick
             # to speed up those final ever-so-slightly-still-moving moments
             # all values eye-balled
-            if len(applied_forces) > 0 and len(spike_applied_forces) > 0:
-                last_max_force = max( np.max(np.abs(applied_forces[-1])),
-                                      np.max(np.abs(spike_applied_forces[-1])))
+            if len(applied_forces) > 0:
+                last_max_force = np.max(np.abs(applied_forces[-1]))
                 if last_max_force > 0.01:
                     current_dt_step = 0
                 elif last_max_force <= 0.01:
@@ -231,33 +192,22 @@ if __name__=='__main__':
             cage_edges.append(G.create_cage(swarm._pos))
             applied_forces.append(forces)
 
-            if use_cones:
-                # same for the spikes
-                # but also update the centers of the spikes so that they
-                # follow the swarm
-                spikes.set_center(swarm._pos)
-                s_forces = spikes.get_acting_forces(dt)
-                s_forces = phys.collide_planes(spikes, s_forces, planes, dt)
-                spikes.update(dt, forces=s_forces)
-
-                # record
-                spike_applied_forces.append(s_forces)
-
             tick_times.append(time.time()-t0)
             elapsed_time.append(dt)
 
-
+            # guaranteed sphere surface
+            uvpos = G.xyz_to_uvr(swarm.get_position())
+            uvpos[:,2] = swarm._radius
+            new_pos = G.uvr_to_xyz(uvpos)
+            swarm.set_position(new_pos)
 
         # finally show the state of the swarm
         swarm_view.update()
 
-        if use_cones:
-            spike_view.update()
-            cone_view.update()
         rate.sleep()
 
         # stop if agents converged
-        if not swarm._any_alive() and not spikes._any_alive():
+        if not swarm._any_alive():
             print('All dead. Avg ticks per second:', 1/np.average(tick_times))
             print('Ticks:',len(applied_forces))
             break
@@ -268,34 +218,26 @@ if __name__=='__main__':
     # send the final locations to rviz
     for i in range(50):
         swarm_view.update()
-        if use_cones:
-            spike_view.update()
-            cone_view.update()
         rate2.sleep()
 
     # elapsed time should have the 'time' of each update, not the dt
     elapsed_time = np.cumsum(elapsed_time)
 
+
     # save all the data we have
     caging_data = {}
     caging_data['caged_sphere'] = (swarm._center, swarm._radius)
     caging_data['obstacle_planes'] = planes
-
     caging_data['sensor_positions'] = swarm.get_position()
     caging_data['cage_edges_over_time'] = cage_edges
-
-    caging_data['agent_positions'] = spikes.get_position() if use_cones else swarm.get_position()
-    caging_data['agent_orientations'] = cones.get_look_vectors() if use_cones else None
-
-    caging_data['sensor_range'] = spikes._radius[0]
+    caging_data['agent_orientations'] = swarm.get_look_vectors() if use_cones else None
+    caging_data['sensor_range'] = swarm._radius[0]
     caging_data['elapsed_time'] = elapsed_time
-
     caging_data['sensor_shape'] = 'conical' if use_cones else 'spherical'
 
     # make a usable and *'able name for the file
-    cone_str = ' '+caging_data['sensor_shape']
     run_string = 'cage '+\
-                 '['+str(N)+' '+cone_str+']'+\
+                 '['+str(N)+' '+caging_data['sensor_shape']+']'+\
                  '['+str(len(planes))+' planes]'+\
                  '['+time.asctime()[4:16]+']'+\
                  '.pickle'

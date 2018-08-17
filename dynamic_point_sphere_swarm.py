@@ -163,3 +163,21 @@ class DynamicPointSphereSwarm(DynamicPointSwarm):
         assert r.shape == self._radius.shape, "given new radius not the same shape as old!"
         self._radius = r
 
+    def get_look_vectors(self):
+        look_vectors = self._center - self._pos
+        return look_vectors
+
+    def get_orientation_quat(self):
+        look_vectors = self.get_look_vectors()
+        quats = []
+        for v in look_vectors:
+            yaw,pitch = G.vec3_to_yaw_pitch(v)
+            roll = 0
+
+            yaw*= G.RADTODEG
+            pitch*= G.RADTODEG
+            quats.append(Quat([yaw,pitch,roll]).q)
+
+        return quats
+
+
