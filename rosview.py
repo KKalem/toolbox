@@ -58,6 +58,41 @@ class RosPoseView:
         self.pub.publish(self.pose_stamped)
 
 
+class RosCubeView:
+    def __init__(self, id, pose_view, scale, rgba):
+        self.id = id
+        self.pub = rospy.Publisher('/rviz_cube_'+str(id), Marker, queue_size=1)
+        self.pose_view = pose_view
+
+
+        marker = Marker()
+        marker.ns = '/RosCubeView'
+        marker.id = self.id
+        marker.action = 0
+        # 10 for mesh
+        marker.type = 1 # cube
+
+        marker.pose = self.pose_view.pose
+        x,y,z = scale
+        marker.scale.x = x
+        marker.scale.y = y
+        marker.scale.z = z
+
+        r,g,b,a = rgba
+        marker.color.a = a
+        marker.color.r = r
+        marker.color.g = g
+        marker.color.b = b
+
+        marker.header.frame_id = '/world'
+
+        self.marker = marker
+
+    def update(self):
+        self.pub.publish(self.marker)
+
+
+
 class RosMarkerArrayView:
     def __init__(self):
         self.last_used_id = -1
@@ -144,7 +179,7 @@ class RosSwarmView:
             pose.orientation = quat
 
             marker = Marker()
-            marker.ns = '/marker_array'
+            marker.ns = '/swarm_marker_array'
             marker.id = self.last_used_id+1
             self.last_used_id += 1
             marker.action = 0
