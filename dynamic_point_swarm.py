@@ -9,9 +9,9 @@ import numpy as np
 import time
 import sys
 
-import geometry as G
-import Pid
-from Quaternion import Quat
+from . import geometry as G
+from . import Pid
+from .Quaternion import Quat
 
 class DynamicPointSwarm:
     def __init__(self,

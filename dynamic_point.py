@@ -6,9 +6,17 @@
 # Date: 2018-05-24
 
 import numpy as np
-from Pid import PID
-import geometry as geom
-from Quaternion import Quat
+
+try:
+    # explicit relative imports with dots in front.
+    from .Pid import PID
+    from .Quaternion import Quat
+    from . import geometry as geom
+except SystemError:
+    # absolute imports when we want to run this by itself
+    from Pid import PID
+    from Quaternion import Quat
+    import geometry as geom
 
 RADTODEG = 360 / (np.pi * 2)
 

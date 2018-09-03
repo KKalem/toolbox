@@ -8,10 +8,10 @@
 import numpy as np
 
 
-import geometry as G
-import Pid
-from Quaternion import Quat
-from dynamic_point_swarm import DynamicPointSwarm
+from . import geometry as G
+from . import Pid
+from .Quaternion import Quat
+from .dynamic_point_swarm import DynamicPointSwarm
 
 class DynamicPointSphereSwarm(DynamicPointSwarm):
     def __init__(self,

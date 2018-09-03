@@ -6,7 +6,8 @@
 # Date: 2018-08-09
 
 import numpy as np
-import geometry as G
+
+from . import geometry as G
 
 def collide_planes(obj, forces, planar_obstacles, dt):
     """
