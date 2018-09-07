@@ -66,7 +66,7 @@ class RosCubeView:
 
 
         marker = Marker()
-        marker.ns = '/RosCubeView'
+        marker.ns = 'cube'
         marker.id = self.id
         marker.action = 0
         marker.type = 1 # cube
@@ -93,13 +93,14 @@ class RosCubeView:
 
 
 class RosMarkerArrayView:
-    def __init__(self):
-        self.last_used_id = -1
+    def __init__(self, namespace='array_item'):
+        self.last_used_id = 0
 
         self.pub = rospy.Publisher('/rviz_marker_array', MarkerArray, queue_size=1)
         self.marker_array = MarkerArray()
 
         self.ros_pose_viewers = []
+        self.namespace = namespace
         self.mesh_paths = []
         self.mesh_scales = []
         self.mesh_rgbas = []
@@ -117,7 +118,7 @@ class RosMarkerArrayView:
                                                            self.mesh_scales,
                                                            self.mesh_rgbas):
             marker = Marker()
-            marker.ns = '/marker_array'
+            marker.ns = self.namespace
             marker.id = self.last_used_id+1
             self.last_used_id += 1
             marker.action = 0
@@ -151,7 +152,8 @@ class RosSwarmView:
                  mesh_path,
                  mesh_rgba,
                  mesh_scale,
-                 last_used_id=999):
+                 namespace='swarm_item',
+                 last_used_id=0):
         """
         Similar to marker array view, but this assumes that the given array of stuff
         are all identical.
@@ -162,9 +164,8 @@ class RosSwarmView:
         """
 
         self.swarm = swarm
-        #  self.last_used_id = -1
         self.last_used_id = last_used_id
-        self.pub = rospy.Publisher('/rviz_marker_array', MarkerArray, queue_size=1)
+        self.pub = rospy.Publisher('/rviz_swarm', MarkerArray, queue_size=1)
 
         # create these ahead of time, just need to update before publishing
         self.marker_array = MarkerArray()
@@ -178,7 +179,7 @@ class RosSwarmView:
             pose.orientation = quat
 
             marker = Marker()
-            marker.ns = '/swarm_marker_array'
+            marker.ns = namespace
             marker.id = self.last_used_id+1
             self.last_used_id += 1
             marker.action = 0
@@ -204,7 +205,7 @@ class RosSwarmView:
 
 
 
-    def update(self):
+    def update(self, frame_locked=False, frame=None):
         for pos,quat,marker in zip(self.swarm.get_position(),
                                    self.swarm.get_orientation_quat(),
                                    self.marker_array.markers):
@@ -217,6 +218,10 @@ class RosSwarmView:
             marker.pose.orientation.y = quat[1]
             marker.pose.orientation.z = quat[2]
             marker.pose.orientation.w = quat[3]
+
+            if frame is not None and frame_locked:
+                marker.frame_locked=frame_locked
+                marker.header.seq = frame
 
         self.pub.publish(self.marker_array)
 

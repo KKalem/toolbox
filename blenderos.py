@@ -84,21 +84,20 @@ class RosModalOperator(bpy.types.Operator):
         bl_obj = bpy.data.objects.get(object_name)
         if bl_obj is None:
             # object does not exist, we will dupe-linked an existing one
-            # we will use the 'mesh_resource' field to determine which one
-            # this is a file address like '~/asd/asdf/xyz.dae'
-            # we want the 'xyz' only
-            source_object = marker.mesh_resource.split('/')[-1].split('.')[0]
-            bl_source_obj = bpy.data.objects.get(source_object)
+            # we expect to find an un-numbered object with the name ns
+            bl_source_obj = bpy.data.objects.get(marker.ns)
             if bl_source_obj is None:
                 # we have no object to move OR a source object to clone from
-                print('Nothing to do with:',object_name)
+                print('No source object found to dupe from:',object_name)
                 return
 
+            # unselect everything so we dont dupe more than needed
+            bpy.ops.object.select_all(action='DESELECT')
             # select the source object to be duplicated
             bl_source_obj.select = True
             # duplicate it
             res = bpy.ops.object.duplicate(linked=False)
-            print('Duplicate run')
+            print('Duplicate run', bpy.data.objects.values())
             # the dupe is selected now
 
             if res != {'FINISHED'}:
@@ -108,21 +107,21 @@ class RosModalOperator(bpy.types.Operator):
             # after duping, the new object is selected by default
             # rename the object to what the marker wants it to be
             try:
-               context.object.name = object_name
-               print('Duped object:',object_name)
-               return
+                context.object.name = object_name
+                print('Duped object:',object_name)
+                # we can now select this new object by its name
+                # this should now work!
+                bl_obj = bpy.data.objects.get(object_name)
+                # set rotation mode to quat
+                bl_obj.rotation_mode = 'QUATERNION'
+                # put it on the first layer
+                bl_obj.layers = [False]*20
+                bl_obj.layers[0] = True
+                return
             except AttributeError:
-                print('Context has no object')
+                print('Context has no object while trying to give name:', object_name)
                 return
 
-            # we can now select this new object by its name
-            # this should now work!
-            bl_obj = bpy.data.objects.get(object_name)
-            # set rotation mode to quat
-            bl_obj.rotation_mode = 'QUATERNION'
-            # put it on the first layer
-            bl_obj.layers = [False]*20
-            bl_obj.layers[0] = True
 
         # now set the location and orientation of this
         pos = marker.pose.position
@@ -165,14 +164,19 @@ class RosModalOperator(bpy.types.Operator):
                 # does it exist in the scene?
                 try:
                     # get it from the scene
-                    bl_mat = bpy.data.materials.get(material_name)
+                    bl_mat = bpy.data.materials[material_name]
+                    print('Found material in scene:',material_name, bl_mat)
                 except KeyError:
                     # it does not exit in the scene either, make it anew
                     bl_mat = bpy.data.materials.new(name=material_name)
+                    print('Created material:', material_name, bl_mat)
 
                 # set the first slot to be this mat
-                bl_obj.material_slots[0].material = bl_mat
                 bl_obj_mat = bl_mat
+                if len(bl_obj.material_slots) > 0:
+                    bl_obj.material_slots[0].material = bl_mat
+                else:
+                    bl_obj.material_slots.append(bl_mat)
 
             # change its color
             bl_obj_mat.diffuse_color[0] = col.r
@@ -208,9 +212,14 @@ def marker_callback(marker):
     global marker_q
     if marker_q.qsize() < 50:
         marker_q.put(marker)
+    return 1
+
+def marker_array_callback(marker_array):
+    [marker_callback(marker) for marker in marker_array.markers]
 
 
 if __name__ == '__main__':
+    print('======== ROS bridge running ========')
     register()
 
     # init ros node as usual
@@ -225,8 +234,7 @@ if __name__ == '__main__':
     # create a global list of subscribers so we can kill them later
     subscriptions = []
     # this creates a thread that will fill marker_q
-    subscriptions.append(rospy.Subscriber('/marker_1', Marker, marker_callback))
-    subscriptions.append(rospy.Subscriber('/marker_2', Marker, marker_callback))
+    subscriptions.append(rospy.Subscriber('/rviz_swarm', MarkerArray, marker_array_callback))
 
     # run it
     bpy.ops.wm.ros_modal_operator()
