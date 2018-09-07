@@ -69,7 +69,6 @@ class RosCubeView:
         marker.ns = '/RosCubeView'
         marker.id = self.id
         marker.action = 0
-        # 10 for mesh
         marker.type = 1 # cube
 
         marker.pose = self.pose_view.pose
