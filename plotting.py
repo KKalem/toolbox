@@ -7,10 +7,79 @@
 
 
 import numpy as np
+
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 from mpl_toolkits.mplot3d import Axes3D #needed for '3d'
 plt.ion()
+
+try:
+    from pyqtgraph.Qt import QtCore, QtGui
+    import pyqtgraph.opengl as gl
+except ImportError:
+    print('PyQtGraph of OpenGL not found! Can not use fancy graphing')
+
+
+def make_opengl_fig(title='OpenGL Figure'):
+
+    app = QtGui.QApplication([])
+    w = gl.GLViewWidget()
+    w.show()
+    w.setWindowTitle(title)
+    g = gl.GLAxisItem()
+    w.addItem(g)
+    return w, app
+
+def gl_line3(w, pts, c=None, size=None, color=None, cmap=None):
+    if size is None:
+        size = 1
+    if color is None:
+        color = np.ones((pts.shape[0], 4))
+
+    if cmap is None:
+        r,g,b = 0.3, 0.6, 1.0
+    elif cmap=='random':
+        r,g,b = np.random.rand(3)
+    elif cmap=='red':
+        r,g,b = 1, 0.3, 0.3
+    elif cmap=='green':
+        r,g,b = 0.3, 1, 0.3
+    elif cmap=='blue':
+        r,g,b = 0.3, 0.3, 1
+
+    if c is not None:
+        color = []
+        # c is a 0-1 valued 'scale' for coloring per point
+        for i in range(len(c)):
+            color.append((r, g*c[i], b*c[i], 1))
+        color = np.array(color)
+
+
+    line = gl.GLLinePlotItem(pos=pts, width=size, color=color, antialias=False)
+    w.addItem(line)
+    return line
+
+def gl_scatter3(w, pts, c=None, size=None, color=None):
+    if size is None:
+        size = np.ones((pts.shape[0]))
+    if color is None:
+        color = np.ones((pts.shape[0], 4))
+
+    if c is not None:
+        color = []
+        # c is a 0-1 valued 'scale' for coloring per point
+        for i in range(len(c)):
+            color.append((0.3, 0.6*c[i], c[i], 0.8))
+        color = np.array(color)
+
+
+    scatter = gl.GLScatterPlotItem(pos=pts, size=size, color=color, pxMode=False)
+    w.addItem(scatter)
+    return scatter
+
+
+
+
 
 def make_3d_fig():
     """
@@ -23,7 +92,7 @@ def make_3d_fig():
     ax = fig.add_subplot(111, projection='3d')
     ax.azim=45
     ax.elev=30
-    plt.margins(tight=True)
+    #  plt.margins(tight=True)
     return fig, ax
 
 def scatter3(ax, pts, **kwargs):
