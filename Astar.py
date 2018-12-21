@@ -54,12 +54,14 @@ def Astar_search(s,
             # found the goal
             # extract path from came_from
             path = []
+            total_cost = 0
             came_from_node = current
             while came_from_node is not None:
                 path.append(came_from_node)
+                total_cost += cost_map[came_from_node[0], came_from_node[1]]
                 came_from_node = came_from.get(came_from_node)
 
-            return np.array(path)
+            return np.array(path), total_cost
 
         # looking at it
         openset.remove(current)
