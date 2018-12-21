@@ -418,7 +418,7 @@ def distance_to_line_segment(A,B,p, comparison=False):
 def trace_line_segment(p1,p2,ratio):
     """
     return a point that is on the line segment p1-p2,
-    at some ratio of the way.
+    at some ratio of the way. ratio is (0,1]
     """
     L = euclid_distance(p1,p2)
     if L < 1e-15:

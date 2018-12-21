@@ -31,6 +31,7 @@ def make_opengl_fig(title='OpenGL Figure'):
     return w, app
 
 def gl_line3(w, pts, c=None, size=None, color=None, cmap=None):
+    pts = np.array(pts)
     if size is None:
         size = 1
     if color is None:
