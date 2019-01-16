@@ -11,7 +11,8 @@ def Astar_search(s,
                  e,
                  cost_map,
                  use_diagonals = True,
-                 heuristic_fn = geom.euclid_distance):
+                 heuristic_fn = geom.euclid_distance,
+                 forbidden_map = None):
     """
     given a cost_map and two points on it, do A* search from point s to point e and return the path
     as an array of shape N,2.
@@ -19,6 +20,9 @@ def Astar_search(s,
     if use_diagonals==False, only the 4 on the plus shape are expanded, otherwise, diagonals are also used
     heuristic_fn should be a function that can take s and e as arguments and returns a single value.
     """
+    if forbidden_map is not None:
+        assert forbidden_map.shape == cost_map.shape
+
     s = tuple(s)
     e = tuple(e)
 
@@ -77,6 +81,10 @@ def Astar_search(s,
 
             if neighbor in closedset:
                 # already looked at this
+                continue
+
+            if forbidden_map is not None and forbidden_map[neighbor[0], neighbor[1]] > 0:
+                # this point is forbidden, no matter the cost, deny it
                 continue
 
             tentative_gScore = gScore[current] + cost_map[neighbor[0], neighbor[1]] + cost
