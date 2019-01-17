@@ -5,13 +5,40 @@
 # Date: 2018-12-21
 
 import numpy as np
-from . import geometry as geom
+
+try:
+    from . import geometry as geom
+except SystemError:
+    import geometry as geom
+
+
+def closest_euclidian(start, goals):
+    goal_shape = np.array(goals).shape
+    if goal_shape == (2,):
+        # single goal put it in a list to make the rest general
+        goals = [goals]
+
+    costs = [geom.euclid_distance(start, goal) for goal in goals]
+    return min(costs)
+
+
+def closests_manhattan(start, goals):
+    def manhattan(start, goal):
+        return abs(start[0]-goal[0])+abs(start[1]-goal[1])
+
+    goal_shape = np.array(goals).shape
+    if goal_shape == (2,):
+        # single goal put it in a list to make the rest general
+        goals = [goals]
+
+    costs = [manhattan(start, goal) for goal in goals]
+    return min(costs)
 
 def Astar_search(s,
                  e,
                  cost_map,
                  use_diagonals = True,
-                 heuristic_fn = geom.euclid_distance,
+                 heuristic_fn = closests_manhattan,
                  forbidden_map = None):
     """
     given a cost_map and two points on it, do A* search from point s to point e and return the path
@@ -19,25 +46,56 @@ def Astar_search(s,
 
     if use_diagonals==False, only the 4 on the plus shape are expanded, otherwise, diagonals are also used
     heuristic_fn should be a function that can take s and e as arguments and returns a single value.
+
+    s and e can be lists, at which point the heuristic_fn should be able to handle the case where the second
+    argument could be a list.
     """
     if forbidden_map is not None:
-        assert forbidden_map.shape == cost_map.shape
+        assert forbidden_map.shape == cost_map.shape, "fobidden map and cost map should be the same shape!"
 
-    s = tuple(s)
-    e = tuple(e)
+    try:
+        ret_shape = np.array(heuristic_fn([3,4], [[1,2],[2,3]])).shape
+        assert ret_shape == (), "heuristic_fn should return a single value even when given a list as args!"
+    except:
+        assert False, "heuristic_fn could not accept [3,4] as first arg and [[1,2],[2,3]] as second arg!"
+
+
+    # check the shape of the inputs, they might be lists of points instead of single points
+    s_shape = np.array(s).shape
+    e_shape = np.array(e).shape
+
+    # s and e are single points, make them into lists instead
+    if s_shape == (2,):
+        starts = [tuple(s)]
+    else:
+        # s is already some kind of a list, check the dimensions
+        assert s_shape[1] == 2, "s can not have a shape larger than (N,2)"
+        starts = [tuple(pt) for pt in s]
+
+
+    if e_shape == (2,):
+        ends = [tuple(e)]
+    else:
+        # e is already some kind of a list, check the dimensions
+        assert e_shape[1] == 2, "e can not have a shape larger than (N,2)"
+        ends = [tuple(pt) for pt in e]
+
+
 
     closedset = set()
     openset = set()
-    openset.add(s)
-
+    # check for None when getting
+    # real cost of a point, this doesnt include the heuristic estimate
+    real_costs = {}
+    heuristic_costs = {}
     came_from = {}
 
-    # check for None when getting
-    gScore = {}
-    gScore[s] = 0
+    for s in starts:
+        s = tuple(s)
+        openset.add(s)
+        real_costs[s] = 0
+        heuristic_costs[s] = heuristic_fn(s, ends)
 
-    fScore = {}
-    fScore[s] = heuristic_fn(s,e)
 
     straight_cost = 1
     neighbors = [ [1,0,straight_cost], [-1,0,straight_cost], [0,1,straight_cost], [0,-1,straight_cost] ]
@@ -48,13 +106,13 @@ def Astar_search(s,
 
     while len(openset) > 0:
         # get the cheapest node and remove it
-        fScore_list = list(fScore.values())
-        fScore_node_list = list(fScore.keys())
-        ix = np.argmin(fScore_list)
-        current = fScore_node_list[ix]
-        del fScore[current]
+        heuristic_cost = list(heuristic_costs.values())
+        heuristic_cost_nodes = list(heuristic_costs.keys())
+        ix = np.argmin(heuristic_cost)
+        current = heuristic_cost_nodes[ix]
+        del heuristic_costs[current]
 
-        if current == e:
+        if current in ends:
             # found the goal
             # extract path from came_from
             path = []
@@ -87,15 +145,48 @@ def Astar_search(s,
                 # this point is forbidden, no matter the cost, deny it
                 continue
 
-            tentative_gScore = gScore[current] + cost_map[neighbor[0], neighbor[1]] + cost
+            tentative_real_cost = real_costs[current] + cost_map[neighbor[0], neighbor[1]] + cost
 
             if neighbor not in openset:
                 openset.add(neighbor)
-            elif tentative_gScore >= gScore[neighbor]:
+            elif tentative_real_cost >= real_costs[neighbor]:
                 continue
 
             # we found the best ever path
             came_from[neighbor] = current
-            gScore[neighbor] = tentative_gScore
-            fScore[neighbor] = gScore[neighbor] + heuristic_fn(e, neighbor)
+            real_costs[neighbor] = tentative_real_cost
+            heuristic_costs[neighbor] = real_costs[neighbor] + heuristic_fn(neighbor, ends)
+
+
+
+
+
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    ms = plt.matshow
+
+    # lets do some testing
+    cost_map = np.ones((20,20))
+    forbidden_map = np.zeros_like(cost_map)
+    forbidden_map[10:20, 9] = 1
+    forbidden_map[9, 0:8] = 1
+
+    starts = [[0,0], [19,19]]
+    ends = [[19,0], [19,1], [19,2], [19,3], [18,0], [18,1], [5,18]]
+    starts = [0,0]
+    ends = [5,18]
+
+
+    path, cost = Astar_search(starts, ends, cost_map, heuristic_fn=closest_euclidian, forbidden_map=forbidden_map)
+
+    visual = forbidden_map
+    for p in path:
+        visual[p[0],p[1]] = 2
+    #  for p in ends:
+        #  visual[p[0],p[1]] = 3
+    #  for p in starts:
+        #  visual[p[0],p[1]] = 4
+
+    ms(visual)
 
