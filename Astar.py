@@ -39,7 +39,8 @@ def Astar_search(s,
                  cost_map,
                  use_diagonals = True,
                  heuristic_fn = closests_manhattan,
-                 forbidden_map = None):
+                 forbidden_map = None,
+                 free_map = None):
     """
     given a cost_map and two points on it, do A* search from point s to point e and return the path
     as an array of shape N,2.
@@ -49,6 +50,9 @@ def Astar_search(s,
 
     s and e can be lists, at which point the heuristic_fn should be able to handle the case where the second
     argument could be a list.
+
+    forbidden_map is an array the same shape as cost_map, the search will not use the cells>0 in the forbidden_map.
+    free_map is the opposite, cells marked >0 will not even have traversal cost with them.
     """
     if forbidden_map is not None:
         assert forbidden_map.shape == cost_map.shape, "fobidden map and cost map should be the same shape!"
@@ -78,7 +82,13 @@ def Astar_search(s,
     else:
         # e is already some kind of a list, check the dimensions
         assert e_shape[1] == 2, "e can not have a shape larger than (N,2)"
-        ends = [tuple(pt) for pt in e]
+        ends = []
+        for pt in e:
+            # check if an ending point is actually forbidden
+            if forbidden_map is not None and forbidden_map[pt[0], pt[1]] > 0:
+                # its forbidden, so not a valid end point
+                continue
+            ends.append(tuple(pt))
 
 
 
@@ -145,6 +155,10 @@ def Astar_search(s,
                 # this point is forbidden, no matter the cost, deny it
                 continue
 
+            if free_map is not None and free_map[neighbor[0], neighbor[1]] > 0:
+                # this point is totally free to move
+                cost = 0
+
             tentative_real_cost = real_costs[current] + cost_map[neighbor[0], neighbor[1]] + cost
 
             if neighbor not in openset:
@@ -189,4 +203,5 @@ if __name__ == '__main__':
         #  visual[p[0],p[1]] = 4
 
     ms(visual)
+
 
