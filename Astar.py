@@ -110,7 +110,7 @@ def Astar_search(s,
     straight_cost = 1
     neighbors = [ [1,0,straight_cost], [-1,0,straight_cost], [0,1,straight_cost], [0,-1,straight_cost] ]
 
-    if neighbors == 8:
+    if use_diagonals:
         diagonal_cost = 1.42
         neighbors.extend( [[1,1,diagonal_cost], [-1,1,diagonal_cost], [1,-1,diagonal_cost], [-1,-1,diagonal_cost]] )
 
@@ -140,7 +140,7 @@ def Astar_search(s,
         closedset.add(current)
 
         # expand the node
-        for dx,dy,cost in neighbors:
+        for dx,dy,move_cost in neighbors:
             neighbor = (current[0] + dx, current[1] + dy)
 
             if neighbor[0] not in range(0, cost_map.shape[0]) or neighbor[1] not in range(0, cost_map.shape[1]):
@@ -156,10 +156,10 @@ def Astar_search(s,
                 continue
 
             if free_map is not None and free_map[neighbor[0], neighbor[1]] > 0:
-                # this point is totally free to move
-                cost = 0
-
-            tentative_real_cost = real_costs[current] + cost_map[neighbor[0], neighbor[1]] + cost
+                # this point is totally free to move, it has the same cost as its parent
+                tentative_real_cost = real_costs[current]
+            else:
+                tentative_real_cost = real_costs[current] + cost_map[neighbor[0], neighbor[1]] + move_cost
 
             if neighbor not in openset:
                 openset.add(neighbor)
