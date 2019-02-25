@@ -108,11 +108,17 @@ def Astar_search(s,
 
 
     straight_cost = 1
-    neighbors = [ [1,0,straight_cost], [-1,0,straight_cost], [0,1,straight_cost], [0,-1,straight_cost] ]
+    neighbors = [ [1,0,straight_cost,None],
+                 [-1,0,straight_cost,None],
+                 [0,1,straight_cost,None],
+                 [0,-1,straight_cost,None] ]
 
     if use_diagonals:
         diagonal_cost = 1.42
-        neighbors.extend( [[1,1,diagonal_cost], [-1,1,diagonal_cost], [1,-1,diagonal_cost], [-1,-1,diagonal_cost]] )
+        neighbors.extend( [[1,1,diagonal_cost,[(1,0), (0,1)]],
+                           [-1,1,diagonal_cost,[(0,1),(-1,0)]],
+                           [1,-1,diagonal_cost,[(1,0),(0,-1)]],
+                           [-1,-1,diagonal_cost,[(-1,0),(0,-1)]]] )
 
     while len(openset) > 0:
         # get the cheapest node and remove it
@@ -140,7 +146,7 @@ def Astar_search(s,
         closedset.add(current)
 
         # expand the node
-        for dx,dy,move_cost in neighbors:
+        for dx,dy,move_cost,diagonal_blockers in neighbors:
             neighbor = (current[0] + dx, current[1] + dy)
 
             if neighbor[0] not in range(0, cost_map.shape[0]) or neighbor[1] not in range(0, cost_map.shape[1]):
@@ -153,6 +159,19 @@ def Astar_search(s,
 
             if forbidden_map is not None and forbidden_map[neighbor[0], neighbor[1]] > 0:
                 # this point is forbidden, no matter the cost, deny it
+                continue
+
+            # if we cant move diagonally because the other two diagonals are blocking
+            # skip it
+            blocked_by_diag = False
+            if diagonal_blockers is not None:
+                for bx, by in diagonal_blockers:
+                    dbx = current[0] + bx
+                    dby = current[1] + by
+                    if forbidden_map is not None and forbidden_map[dbx,dby] > 0:
+                        blocked_by_diag = True
+
+            if blocked_by_diag:
                 continue
 
             if free_map is not None and free_map[neighbor[0], neighbor[1]] > 0:
