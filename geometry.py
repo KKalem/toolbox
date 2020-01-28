@@ -82,8 +82,8 @@ def vec2_rotate(vec2, rad):
     vec2 and rad can be (N,2), list of vectors, and (N,1), list of radians
     all of the given vectors will be rotated.
     """
-    vec2 = np.array(np.atleast_2d(vec2))
-    rad = np.array(rad)
+    vec2 = np.array(np.atleast_2d(vec2), dtype='float')
+    rad = np.array(rad, dtype='float')
 
     x1s = vec2[:,0]
     y1s = vec2[:,1]
@@ -418,7 +418,7 @@ def distance_to_line_segment(A,B,p, comparison=False):
 def trace_line_segment(p1,p2,ratio):
     """
     return a point that is on the line segment p1-p2,
-    at some ratio of the way.
+    at some ratio of the way. ratio is (0,1]
     """
     L = euclid_distance(p1,p2)
     if L < 1e-15:
@@ -489,6 +489,23 @@ def create_cage(pts):
     return np.array(list(edges.values()))
 
 
+def scale_range(values, new_min, new_max, org_min=None, org_max=None):
+    """
+    given a list of values, they will be scaled so that the minimum and
+    maximum of the data is new_min and new_max. if org_x's are given
+    then the data will be scaled to match org's to new's
+    """
+    if org_min is None:
+        org_min = np.min(values)
+    if org_max is None:
+        org_max = np.max(values)
+    org_range = org_max - org_min
+    new_range = new_max - new_min
+    values = np.array(values)
+    ret = (((values - org_min) * new_range) / org_range) + new_min
+    if ret.shape == (1,):
+        return ret[0]
+    return ret
 
 ########################################################################
 
