@@ -8,7 +8,6 @@
 from __future__ import print_function
 import math
 import numpy as np
-from scipy.spatial import Delaunay
 
 RADTODEG = 360 / (np.pi * 2)
 
@@ -462,6 +461,9 @@ def create_cage(pts):
     # the sphere.
     pts = np.array(pts)
     try:
+        # import here since nothing else in the file uses this, and scipy is a huge
+        # dependency thats not needed for _every_ project that needs geometry...
+        from scipy.spatial import Delaunay
         tris = Delaunay(pts)
     except:
         # if can't triangulate, the vertices must be degenerate, so no cage.
