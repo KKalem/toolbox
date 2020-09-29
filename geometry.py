@@ -509,6 +509,14 @@ def scale_range(values, new_min, new_max, org_min=None, org_max=None):
         return ret[0]
     return ret
 
+
+def cross_track_error(beginning_point, current_point):
+    p = current_point
+    A = beginning_point
+    theta = vec2_directed_angle([1.,0.], p-A)
+    xte = np.sin(theta)*euclid_distance(A,p)
+    return xte
+
 ########################################################################
 
 # SPHERICAL STUFF
