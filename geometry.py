@@ -55,6 +55,14 @@ def vec_limit_len(vec, max_len):
     return vec*min(max_len, norm)
 
 
+def vec_set_len(vec, l):
+    """
+    sets the length of the vector
+    """
+    norm, vec = vec_normalize(vec)
+    return vec*l
+
+
 def project_vec(X,Y):
     """
     project a vector X onto a vector Y
@@ -270,6 +278,35 @@ def line_intersect(l1, l2):
 
     intersection_point = [ p0[0] + (t * s10_x), p0[1] + (t * s10_y) ]
     return intersection_point
+
+
+def circle_intersection(circle1, circle2):
+    """
+    return the possible intersection points between two
+    circles (x,y,r)
+    """
+    x1,y1,r1 = circle1
+    x2,y2,r2 = circle2
+    # http://stackoverflow.com/a/3349134/798588
+    dx,dy = x2-x1,y2-y1
+    d = np.sqrt(dx*dx+dy*dy)
+    if d > r1+r2:
+        return None # no solutions, the circles are separate
+    if d < abs(r1-r2):
+        return None # no solutions because one circle is contained within the other
+    if d == 0 and r1 == r2:
+        return None # circles are coincident and there are an infinite number of solutions
+
+    a = (r1*r1-r2*r2+d*d)/(2*d)
+    h = np.sqrt(r1*r1-a*a)
+    xm = x1 + a*dx/d
+    ym = y1 + a*dy/d
+    xs1 = xm + h*dy/d
+    xs2 = xm - h*dy/d
+    ys1 = ym - h*dx/d
+    ys2 = ym + h*dx/d
+
+    return (xs1,ys1),(xs2,ys2)
 
 
 def point_in_poly(pts, poly):
