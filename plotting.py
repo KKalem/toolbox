@@ -60,21 +60,8 @@ def gl_line3(w, pts, c=None, size=None, color=None, cmap=None):
     w.addItem(line)
     return line
 
-def gl_scatter3(w, pts, c=None, size=None, color=None):
-    if size is None:
-        size = np.ones((pts.shape[0]))
-    if color is None:
-        color = np.ones((pts.shape[0], 4))
-
-    if c is not None:
-        color = []
-        # c is a 0-1 valued 'scale' for coloring per point
-        for i in range(len(c)):
-            color.append((0.3, 0.6*c[i], c[i], 0.8))
-        color = np.array(color)
-
-
-    scatter = gl.GLScatterPlotItem(pos=pts, size=size, color=color, pxMode=False)
+def gl_scatter3(w, pts, **kwargs):
+    scatter = gl.GLScatterPlotItem(pos=pts, **kwargs)
     w.addItem(scatter)
     return scatter
 
